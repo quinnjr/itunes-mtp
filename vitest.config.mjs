@@ -8,6 +8,18 @@ export default defineConfig({
     include: ['src/**/*.spec.ts'],
     // Suppress console output during tests
     silent: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html', 'lcov'],
+      exclude: [
+        'node_modules/',
+        'src-tauri/',
+        '**/*.spec.ts',
+        '**/*.config.*',
+        '**/main.ts',
+        '**/polyfills.ts',
+      ],
+    },
   },
 });
 

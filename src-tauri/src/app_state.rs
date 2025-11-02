@@ -36,7 +36,7 @@ pub struct Playlist {
 }
 
 // iTunesLibrary containing tracks and playlists
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct ITunesLibrary {
     pub tracks: HashMap<String, Track>,
     pub playlists: Vec<Playlist>,

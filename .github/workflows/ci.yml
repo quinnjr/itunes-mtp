@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'feature/**']
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  ci:
+    name: Full CI Pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          STORE_PATH=$(pnpm store path 2>/dev/null || echo "$HOME/.pnpm-store")
+          echo "STORE_PATH=$STORE_PATH" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run all checks
+        run: |
+          echo "Running comprehensive CI checks..."
+
+          # Frontend linting
+          echo "📋 Running ESLint..."
+          pnpm lint || exit 1
+
+          # Frontend tests
+          echo "🧪 Running frontend tests..."
+          pnpm test || exit 1
+
+          # Rust linting
+          echo "🦀 Running Rust clippy..."
+          rustup component add clippy || true
+          cd src-tauri
+          cargo clippy --all-targets --all-features -- -D warnings || exit 1
+
+          # Rust formatting check
+          echo "✨ Checking Rust formatting..."
+          cargo fmt --all -- --check || exit 1
+
+          # Rust tests
+          echo "🧪 Running Rust tests..."
+          cargo test --verbose || exit 1
+
+          echo "✅ All CI checks passed!"
+
