@@ -58,25 +58,72 @@ pub struct ITunesLibrary {
 /// Decode iTunes file:// URL to a proper file path
 /// iTunes stores file paths as `file://localhost/C:/Music/...` URLs
 /// This function converts them to Windows paths like `C:\Music\...`
+/// 
+/// Handles:
+/// - `file://localhost/C:/Music/...` → `C:\Music\...`
+/// - `file:///C:/Music/...` → `C:\Music\...`
+/// - Network paths: `file://server/share/path` → `\\server\share\path`
+/// - URL encoding: `%20` → space, `%28` → `(`, etc.
+/// - Special characters in paths
 fn decode_itunes_url(url: &str) -> String {
+    // If not a file:// URL, return as-is
     if !url.starts_with("file://") {
         return url.to_string();
     }
 
     // Remove the file:// prefix
-    let path = url.strip_prefix("file://").unwrap_or(url);
+    let mut path = url.strip_prefix("file://").unwrap_or(url).to_string();
 
-    // Remove localhost if present
-    let path = path.strip_prefix("localhost/").unwrap_or(path);
+    // Remove leading slashes (can be file:/// or file://localhost/)
+    while path.starts_with('/') {
+        path.remove(0);
+    }
 
-    // Decode URL encoding (e.g., %20 -> space)
-    let decoded = urlencoding::decode(path).unwrap_or(std::borrow::Cow::Borrowed(path));
+    // Check if this is localhost (local file path)
+    let is_localhost = path.starts_with("localhost/");
+    if is_localhost {
+        // Local file path with localhost
+        path = path.strip_prefix("localhost/").unwrap_or(&path).to_string();
+    }
 
-    // Convert forward slashes to backslashes on Windows
-    #[cfg(target_os = "windows")]
-    let decoded = decoded.replace('/', "\\");
+    // Check if this is a network path (file://server/share/...)
+    // Network paths: don't have localhost, don't have drive letter (C:/), have at least one /
+    let is_network_path = !is_localhost && 
+                          !path.chars().next().map(|c| c.is_ascii_alphabetic() && path.chars().nth(1) == Some(':')).unwrap_or(false) &&
+                          path.contains('/');
 
-    decoded.to_string()
+    if is_network_path {
+        // Handle network paths (file://server/share/path)
+        let decoded = urlencoding::decode(&path).unwrap_or(std::borrow::Cow::Borrowed(path.as_str()));
+        #[cfg(target_os = "windows")]
+        {
+            let result = decoded.replace('/', "\\");
+            // Ensure network path format: \\server\share\path
+            if !result.starts_with("\\\\") {
+                format!("\\\\{}", result)
+            } else {
+                result
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            decoded.to_string()
+        }
+    } else {
+        // Local file path
+        // Decode URL encoding (e.g., %20 -> space, %28 -> (, %29 -> ))
+        let decoded = urlencoding::decode(&path).unwrap_or(std::borrow::Cow::Borrowed(path.as_str()));
+
+        // Convert forward slashes to backslashes on Windows
+        #[cfg(target_os = "windows")]
+        {
+            decoded.replace('/', "\\").to_string()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            decoded.to_string()
+        }
+    }
 }
 
 // Application state
@@ -503,19 +550,17 @@ mod tests {
             }
         );
 
-        // Test file:// URL without localhost
-        let result2 = decode_itunes_url("file:///C:/Music/Song.mp3");
-        let expected2 = if cfg!(target_os = "windows") {
-            "C:\\Music\\Song.mp3"
-        } else {
-            "C:/Music/Song.mp3"
-        };
-        // urlencoding might add a leading backslash, so we check it ends correctly
-        assert!(result2 == expected2 || result2 == format!("\\{}", expected2) ||
-                result2.ends_with("Music\\Song.mp3") || result2.ends_with("Music/Song.mp3"),
-                "Result should be {} or end with Music\\Song.mp3, got: {}", expected2, result2);
+        // Test file:// URL without localhost (three slashes)
+        assert_eq!(
+            decode_itunes_url("file:///C:/Music/Song.mp3"),
+            if cfg!(target_os = "windows") {
+                "C:\\Music\\Song.mp3"
+            } else {
+                "C:/Music/Song.mp3"
+            }
+        );
 
-        // Test URL with special characters
+        // Test URL with special characters (parentheses, spaces)
         assert_eq!(
             decode_itunes_url("file://localhost/C:/Music/Artist%20Name/Album%20%28Deluxe%29/01%20Track.mp3"),
             if cfg!(target_os = "windows") {
@@ -525,14 +570,47 @@ mod tests {
             }
         );
 
+        // Test URL with various special characters
+        assert_eq!(
+            decode_itunes_url("file://localhost/C:/Music/Song%20%26%20Dance%20%23%201.mp3"),
+            if cfg!(target_os = "windows") {
+                "C:\\Music\\Song & Dance # 1.mp3"
+            } else {
+                "C:/Music/Song & Dance # 1.mp3"
+            }
+        );
+
+        // Test network path (UNC path)
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(
+                decode_itunes_url("file://server/share/music/song.mp3"),
+                "\\\\server\\share\\music\\song.mp3"
+            );
+
+            assert_eq!(
+                decode_itunes_url("file://SERVER-01/Music%20Library/Artist/Album/Song.mp3"),
+                "\\\\SERVER-01\\Music Library\\Artist\\Album\\Song.mp3"
+            );
+        }
+
         // Test non-URL path (should return as-is)
-        // The function should return paths that don't start with file:// unchanged
-        let result = decode_itunes_url("C:\\Music\\Song.mp3");
-        // On Windows, result might have a leading backslash from urlencoding processing
-        // So we check it ends correctly
-        assert!(result == "C:\\Music\\Song.mp3" || result == "\\C:\\Music\\Song.mp3" ||
-                result.ends_with("Music\\Song.mp3"),
-                "Result should be C:\\Music\\Song.mp3 or end with Music\\Song.mp3, got: {}", result);
+        assert_eq!(
+            decode_itunes_url("C:\\Music\\Song.mp3"),
+            "C:\\Music\\Song.mp3"
+        );
+
+        // Test relative path (should return as-is)
+        assert_eq!(
+            decode_itunes_url("Music/Song.mp3"),
+            "Music/Song.mp3"
+        );
+
+        // Test empty string
+        assert_eq!(
+            decode_itunes_url(""),
+            ""
+        );
     }
 
     #[test]
