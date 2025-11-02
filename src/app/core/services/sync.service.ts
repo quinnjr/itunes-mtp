@@ -1,6 +1,6 @@
 import { Injectable, signal, computed } from '@angular/core';
 import { invoke } from '@tauri-apps/api/core';
-import { SyncProgress, SyncResult } from '../../shared/models/sync.model';
+import { SyncProgress, SyncResult, SyncReport } from '../../shared/models/sync.model';
 import { Playlist } from '../../shared/models/library.model';
 
 @Injectable({
@@ -66,14 +66,42 @@ export class SyncService {
         this._status.set(`Syncing ${playlist.name}...`);
 
         try {
-          // Sync each playlist to the device
-          const result = await invoke<string>('sync_playlist_to_device', {
+          // Sync each playlist to the device (returns JSON string with SyncReport)
+          const reportJson = await invoke<string>('sync_playlist_to_device', {
             playlistName: playlist.name,
             deviceFolder
           });
 
-          console.log(`Synced playlist "${playlist.name}":`, result);
-          syncedPlaylists.push(playlist.name);
+          // Parse the sync report
+          let report: SyncReport;
+          try {
+            report = JSON.parse(reportJson) as SyncReport;
+          } catch (parseError) {
+            console.error(`Failed to parse sync report for "${playlist.name}":`, parseError);
+            errors.push(`Failed to parse sync report for "${playlist.name}"`);
+            continue;
+          }
+
+          // Log detailed report
+          console.log(`Sync report for "${playlist.name}":`, report);
+
+          if (report.success) {
+            syncedPlaylists.push(playlist.name);
+            if (report.warnings.length > 0) {
+              console.warn(`Warnings for "${playlist.name}":`, report.warnings);
+            }
+          } else {
+            // Add detailed errors from the report
+            const detailedErrors = report.errors.map(err =>
+              `${err.operation}: ${err.error} (${err.category}, ${err.attempts} attempt${err.attempts > 1 ? 's' : ''})`
+            );
+            errors.push(...detailedErrors);
+
+            // Add warnings as informational messages
+            if (report.warnings.length > 0) {
+              errors.push(`Warnings: ${report.warnings.join('; ')}`);
+            }
+          }
 
         } catch (error) {
           const errorMessage = `Failed to sync playlist "${playlist.name}": ${error}`;
@@ -98,7 +126,9 @@ export class SyncService {
           ? `Successfully synced ${syncedPlaylists.length} playlist(s)`
           : `Synced ${syncedPlaylists.length} playlist(s) with ${errors.length} error(s)`,
         syncedPlaylists,
-        errors
+        errors,
+        // Note: Individual playlist reports are logged, but we don't store them in the overall result
+        // to keep the interface simple. Detailed reports are available in console logs.
       };
 
       this._syncResult.set(result);

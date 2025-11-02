@@ -3,12 +3,19 @@
 mod mtp;
 mod app_state;
 mod errors;
+mod retry;
+mod sync_report;
 
 use std::sync::Mutex;
+use std::path::Path;
+use std::fs;
 use tauri::State;
 
 #[cfg(windows)]
 use mtp::{DeviceInfo, FileInfo, StorageInfo, ThreadSafeMtpManager, ThreadSafeMtpDevice};
+use errors::SyncError;
+use retry::{RetryConfig, retry_with_backoff};
+use sync_report::{SyncReport, OperationError};
 #[cfg(not(windows))]
 mod mtp {
     use serde::Serialize;
@@ -290,6 +297,8 @@ fn sync_playlist_to_device(
     playlist_name: String,
     device_folder: Option<String>,
 ) -> Result<String, String> {
+    let start_time = std::time::Instant::now();
+
     let connection = state.active_device_connection.lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
@@ -305,27 +314,205 @@ fn sync_playlist_to_device(
     let lib_state = state.library_state.lock()
         .map_err(|e| format!("Failed to lock library state: {}", e))?;
 
-    if let Some(library) = lib_state.as_ref() {
-        if let Some(lib) = &library.library {
-            // Find the playlist
-            if let Some(playlist) = lib.playlists.iter().find(|p| p.name == playlist_name) {
-                // Create M3U content
-                let _m3u_content = library.generate_mtp_playlist_content(playlist)
-                    .map_err(|e| format!("Failed to generate playlist content: {}", e))?;
+    let library = lib_state.as_ref()
+        .ok_or_else(|| "No library loaded".to_string())?;
+    let lib = library.library.as_ref()
+        .ok_or_else(|| "No library loaded".to_string())?;
 
-                // For now, just return success - in a real implementation,
-                // you would transfer files and create the playlist on the device
-                Ok(format!("Playlist '{}' would be synced to device folder: {:?}",
-                    playlist_name, device_folder.unwrap_or_else(|| "Music".to_string())))
-            } else {
-                Err(format!("Playlist '{}' not found", playlist_name))
+    // Find the playlist
+    let playlist = lib.playlists.iter()
+        .find(|p| p.name == playlist_name)
+        .ok_or_else(|| format!("Playlist '{}' not found", playlist_name))?;
+
+    let _device_folder_name = device_folder.unwrap_or_else(|| "Music".to_string());
+
+    // Initialize sync report
+    let mut report = SyncReport::new();
+    let retry_config = RetryConfig::default();
+
+    // Get or create the base music folder on device
+    let base_folder_id = match device.get_or_create_music_folder() {
+        Ok(id) => id,
+        Err(e) => {
+            let mut error_report = SyncReport::new();
+            error_report.add_error(
+                "get_or_create_music_folder".to_string(),
+                SyncError::DeviceError(format!("Failed to get/create music folder: {}", e)),
+                1,
+            );
+            error_report.duration_ms = start_time.elapsed().as_millis() as u64;
+            error_report.finalize();
+            return Ok(serde_json::to_string(&error_report)
+                .unwrap_or_else(|_| format!("Error creating sync report")));
+        }
+    };
+
+    // Process each track in the playlist
+    for track_id in &playlist.tracks {
+        if let Some(track) = lib.tracks.get(track_id) {
+            // Decode iTunes URL to file path
+            let file_path = app_state::decode_itunes_url(&track.location);
+
+            // Check if file exists locally
+            if !Path::new(&file_path).exists() {
+                report.add_error(
+                    format!("check_file_exists_{}", track_id),
+                    SyncError::FileNotFound(format!("File not found: {}", file_path)),
+                    1,
+                );
+                report.increment_skipped();
+                continue;
+            }
+
+            // Verify file is readable and not corrupted (basic check)
+            if let Err(e) = fs::File::open(&file_path) {
+                report.add_warning(format!(
+                    "Track '{}' (ID: {}): File exists but cannot be opened: {}",
+                    track.name, track_id, e
+                ));
+                report.add_error(
+                    format!("open_file_{}", track_id),
+                    SyncError::IoError(format!("Failed to open file: {}", e)),
+                    1,
+                );
+                report.increment_skipped();
+                continue;
+            }
+
+            // Determine folder path on device (Artist/Album structure)
+            let artist_name = track.artist.as_str();
+            let album_name = track.album.as_ref().map(|s| s.as_str()).unwrap_or("Unknown Album");
+            let folder_path = format!("{}/{}", artist_name, album_name);
+
+            // Ensure folder structure exists on device (with retry)
+            let folder_id = {
+                let device_clone = device.clone();
+                let folder_path_clone = folder_path.clone();
+                let base_id = base_folder_id.clone();
+
+                let retry_result = retry_with_backoff(
+                    || {
+                        device_clone.ensure_folder_path(&base_id, &folder_path_clone)
+                            .map_err(|e| SyncError::DeviceError(format!("Failed to create folder path: {}", e)))
+                    },
+                    &retry_config,
+                    &format!("ensure_folder_path_{}", folder_path),
+                );
+
+                match retry_result.result {
+                    Ok(id) => id,
+                    Err(e) => {
+                        report.add_error(
+                            format!("ensure_folder_path_{}", folder_path),
+                            e,
+                            retry_result.attempts,
+                        );
+                        report.increment_skipped();
+                        continue;
+                    }
+                }
+            };
+
+            // Get file name from path
+            let file_name = Path::new(&file_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| SyncError::ParseError(format!("Invalid filename: {}", file_path)));
+
+            let file_name = match file_name {
+                Ok(name) => name.to_string(),
+                Err(e) => {
+                    report.add_error(
+                        format!("get_filename_{}", track_id),
+                        e,
+                        1,
+                    );
+                    report.increment_skipped();
+                    continue;
+                }
+            };
+
+            // Upload file to device (with retry)
+            let device_clone = device.clone();
+            let file_path_clone = file_path.clone();
+            let folder_id_clone = folder_id.clone();
+            let file_name_clone = file_name.clone();
+
+            let retry_result = retry_with_backoff(
+                || {
+                    device_clone.upload_file(&file_path_clone, &folder_id_clone, &file_name_clone)
+                        .map_err(|e| {
+                            // Categorize MTP errors
+                            let error_str = e.to_string().to_lowercase();
+                            if error_str.contains("connection") || error_str.contains("device") {
+                                SyncError::DeviceError(format!("Device error: {}", e))
+                            } else if error_str.contains("timeout") || error_str.contains("timed out") {
+                                SyncError::TimeoutError(format!("Operation timed out: {}", e))
+                            } else if error_str.contains("network") {
+                                SyncError::NetworkError(format!("Network error: {}", e))
+                            } else {
+                                SyncError::TransferError(format!("Transfer failed: {}", e))
+                            }
+                        })
+                },
+                &retry_config,
+                &format!("upload_file_{}", file_name),
+            );
+
+            match retry_result.result {
+                Ok(_) => {
+                    report.increment_success();
+                    eprintln!("Successfully uploaded: {} ({})", track.name, file_name);
+                }
+                Err(e) => {
+                    let mut op_error = OperationError::from((
+                        format!("upload_file_{}", track_id),
+                        e.clone(),
+                        retry_result.attempts,
+                    ));
+                    op_error.file_path = Some(file_path.clone());
+                    op_error.track_id = Some(track_id.clone());
+                    report.errors.push(op_error);
+                    report.failed_operations += 1;
+
+                    // Check if file might be corrupted
+                    if e.category() == crate::errors::ErrorCategory::Corruption {
+                        report.add_warning(format!(
+                            "Track '{}' (ID: {}): File may be corrupted, skipped",
+                            track.name, track_id
+                        ));
+                        report.increment_skipped();
+                    } else {
+                        eprintln!("Failed to upload: {} ({}) after {} attempts", track.name, file_name, retry_result.attempts);
+                    }
+                }
             }
         } else {
-            Err("No library loaded".to_string())
+            report.add_error(
+                format!("track_not_found_{}", track_id),
+                SyncError::ParseError(format!("Track ID '{}' not found in library", track_id)),
+                1,
+            );
+            report.increment_skipped();
         }
-    } else {
-        Err("No library loaded".to_string())
     }
+
+    // Finalize report
+    report.duration_ms = start_time.elapsed().as_millis() as u64;
+    report.finalize();
+
+    // Log summary
+    eprintln!(
+        "Sync completed: {} successful, {} failed, {} skipped ({}ms)",
+        report.successful_operations,
+        report.failed_operations,
+        report.skipped_operations,
+        report.duration_ms
+    );
+
+    // Serialize and return report
+    serde_json::to_string(&report)
+        .map_err(|e| format!("Failed to serialize sync report: {}", e))
 }
 
 #[tauri::command]

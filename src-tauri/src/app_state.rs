@@ -65,7 +65,7 @@ pub struct ITunesLibrary {
 /// - Network paths: `file://server/share/path` → `\\server\share\path`
 /// - URL encoding: `%20` → space, `%28` → `(`, etc.
 /// - Special characters in paths
-fn decode_itunes_url(url: &str) -> String {
+pub fn decode_itunes_url(url: &str) -> String {
     // If not a file:// URL, return as-is
     if !url.starts_with("file://") {
         return url.to_string();
@@ -307,7 +307,7 @@ impl AppState {
                     }
                 }
                 Ok(Event::Eof) => break,
-                Err(e) => return Err(SyncError::XmlError(e)),
+                Err(e) => return Err(SyncError::XmlError(e.to_string())),
                 _ => {}
             }
         }
