@@ -96,7 +96,8 @@
             "tsConfig": "tsconfig.spec.json",
             "runner": "vitest",
             "buildTarget": "::development",
-            "codeCoverage": false
+            "codeCoverage": false,
+            "watch": false
           },
           "configurations": {
             "coverage": {
