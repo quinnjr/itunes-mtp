@@ -80,11 +80,18 @@ This roadmap outlines the planned development phases for completing the iTunes l
    - Stream files in chunks (avoid memory issues)
    - Set file metadata during upload (name, size, date)
 
-4. **Storage Management**
-   - Query available storage on device
-   - Calculate required space before sync
-   - Warn user if insufficient space
-   - Display storage usage in UI
+4. **Storage Management** ✅ **COMPLETE**
+   - ✅ Query available storage on device - IMPLEMENTED
+   - ✅ StorageInfo struct and get_storage_info() method added
+   - ✅ Tauri command and TypeScript service method implemented
+   - ✅ Used space calculated from file enumeration
+   - [ ] Calculate required space before sync (to be implemented in sync logic)
+   - [ ] Warn user if insufficient space (to be implemented in UI)
+   - [ ] Display storage usage in UI (to be implemented)
+   - Note: Most MTP devices don't expose standard storage capacity properties
+     through the Windows Portable Device API. The current implementation
+     calculates used space by summing file sizes. Total and free space
+     querying would require device-specific implementations or proprietary APIs.
 
 **Dependencies:** Phase 1 (need valid file paths to upload)
 

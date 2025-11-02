@@ -206,10 +206,10 @@ export class MtpDeviceService {
         folderName
       });
       console.log('Folder created:', folderName, 'with ID:', folderId);
-      
+
       // Refresh device files to show the new folder
       await this.loadDeviceFiles(this._currentFolder() || undefined);
-      
+
       return folderId;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -282,15 +282,39 @@ export class MtpDeviceService {
         fileName
       });
       console.log('File uploaded successfully:', fileName, 'with object ID:', objectId);
-      
+
       // Refresh device files to show the new file
       await this.loadDeviceFiles(parentFolderId);
-      
+
       return objectId;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('Failed to upload file:', errorMessage);
       throw new Error(`Failed to upload file: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Get storage capacity information for the connected device
+   * @returns StorageInfo with total, free, and used space in bytes
+   */
+  public async getStorageInfo(): Promise<{ totalSpace: number; freeSpace: number; usedSpace: number }> {
+    if (!this.isConnected()) {
+      throw new Error('No device connected');
+    }
+
+    try {
+      const storageInfo = await invoke<{ total_space: number; free_space: number; used_space: number }>('get_device_storage_info');
+      console.log('Storage info retrieved:', storageInfo);
+      return {
+        totalSpace: storageInfo.total_space,
+        freeSpace: storageInfo.free_space,
+        usedSpace: storageInfo.used_space
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to get storage info:', errorMessage);
+      throw new Error(`Failed to get storage info: ${errorMessage}`);
     }
   }
 }

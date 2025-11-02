@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use tauri::State;
 
 #[cfg(windows)]
-use mtp::{DeviceInfo, FileInfo, ThreadSafeMtpManager, ThreadSafeMtpDevice};
+use mtp::{DeviceInfo, FileInfo, StorageInfo, ThreadSafeMtpManager, ThreadSafeMtpDevice};
 #[cfg(not(windows))]
 mod mtp {
     use serde::Serialize;
@@ -25,6 +25,12 @@ mod mtp {
         pub size: u64,
         pub is_folder: bool,
     }
+    #[derive(Debug, Clone, Serialize)]
+    pub struct StorageInfo {
+        pub total_space: u64,
+        pub free_space: u64,
+        pub used_space: u64,
+    }
     pub struct MtpDevice;
     pub struct ThreadSafeMtpManager;
     impl ThreadSafeMtpManager {
@@ -34,7 +40,7 @@ mod mtp {
     }
 }
 #[cfg(not(windows))]
-use mtp::{DeviceInfo, FileInfo};
+use mtp::{DeviceInfo, FileInfo, StorageInfo};
 use app_state::{AppState as LibraryState, ITunesLibrary, Track, Playlist};
 
 // Application state
@@ -428,6 +434,29 @@ fn upload_file(
 }
 
 #[tauri::command]
+#[cfg(windows)]
+fn get_device_storage_info(state: State<AppState>) -> Result<StorageInfo, String> {
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
+
+    let device = connection.as_ref()
+        .ok_or_else(|| "No device connected".to_string())?;
+
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
+
+    device.get_storage_info()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+fn get_device_storage_info(_state: State<AppState>) -> Result<StorageInfo, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
+#[tauri::command]
 #[cfg(not(windows))]
 fn upload_file(_state: State<AppState>, _local_path: String, _parent_folder_id: String, _file_name: String) -> Result<String, String> {
     Err("MTP device support is only available on Windows".to_string())
@@ -457,6 +486,7 @@ pub fn run() {
             ensure_folder_path,
             get_or_create_music_folder,
             upload_file,
+            get_device_storage_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

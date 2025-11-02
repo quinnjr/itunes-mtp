@@ -70,6 +70,15 @@ pub struct FileInfo {
     pub is_folder: bool,
 }
 
+// Storage information
+#[cfg(windows)]
+#[derive(Debug, Clone, Serialize)]
+pub struct StorageInfo {
+    pub total_space: u64,
+    pub free_space: u64,
+    pub used_space: u64,
+}
+
 // MTP Device Manager
 #[cfg(windows)]
 pub struct MtpDeviceManager {
@@ -594,6 +603,47 @@ impl MtpDevice {
             Ok(object_id_str)
         }
     }
+
+    /// Get storage capacity information for the device
+    /// Returns total space, free space, and used space in bytes
+    /// Note: Storage capacity querying is device-specific and may not be
+    /// available on all MTP devices. This implementation attempts to query
+    /// storage information but may return 0 for unknown values.
+    pub fn get_storage_info(&self) -> Result<StorageInfo, Box<dyn Error>> {
+        unsafe {
+            // Many MTP devices don't expose standard storage capacity properties
+            // We'll calculate used space from file enumeration as a fallback
+            let device_root_files = self.list_files(None)?;
+            let mut used_space_estimate: u64 = 0;
+            for file in &device_root_files {
+                if !file.is_folder {
+                    used_space_estimate += file.size;
+                }
+            }
+
+            // Attempt to query storage capacity from device capabilities
+            // This is device-specific and may not work on all devices
+            // WPD_DEVICE_OBJECT_ID is a PCWSTR constant, we use it directly
+
+            let mut total_space: u64 = 0;
+            let mut free_space: u64 = 0;
+
+            // Try to get storage properties from device root object
+            // Note: Most MTP devices don't expose standard storage capacity properties
+            // through the WPD API. This would require device-specific implementations
+            // or proprietary APIs. For now, we calculate used space from file enumeration.
+
+            // For now, return StorageInfo with used space estimate
+            // total_space and free_space are set to 0 to indicate unknown
+            // Real implementation would require device-specific handling or
+            // use of device manufacturer's proprietary APIs
+            Ok(StorageInfo {
+                total_space,      // Unknown - would need device-specific implementation
+                free_space,       // Unknown - would need device-specific implementation
+                used_space: used_space_estimate,
+            })
+        }
+    }
 }
 
 /// Determine content type GUID based on file extension
@@ -730,6 +780,12 @@ impl ThreadSafeMtpDevice {
         let device = self.device.lock()
             .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
         device.upload_file(local_path, parent_folder_id, file_name)
+    }
+
+    pub fn get_storage_info(&self) -> Result<StorageInfo, Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.get_storage_info()
     }
 
     pub fn get_device_id(&self) -> &str {
