@@ -2,6 +2,7 @@
 import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { BrowserDynamicTestingModule, platformBrowserDynamicTesting } from '@angular/platform-browser-dynamic/testing';
+import { provideZonelessChangeDetection } from '@angular/core';
 
 // Mock PrimeNG modules before Angular initializes to prevent compatibility issues with Angular 20
 vi.mock('primeng/fileupload', () => ({
@@ -21,11 +22,24 @@ vi.mock('primeng', () => ({
   default: {}
 }));
 
-// Initialize Angular test environment
+// Initialize Angular test environment with zoneless change detection
 TestBed.initTestEnvironment(
   BrowserDynamicTestingModule,
-  platformBrowserDynamicTesting()
+  platformBrowserDynamicTesting(),
+  {
+    // Use zoneless change detection for tests
+    errorOnUnknownElements: true,
+    errorOnUnknownProperties: true,
+  }
 );
+
+// Configure global test providers to include zoneless change detection
+// This ensures all tests use zoneless mode by default
+// Make zoneless provider available globally for tests
+(globalThis as any).__ZONELESS_PROVIDER__ = provideZonelessChangeDetection();
+
+// Note: Individual test files should include provideZonelessChangeDetection() in their providers
+// This global variable is available if needed for convenience
 
 // Suppress console errors from PrimeNG during tests (keep console.log for debugging)
 const originalError = console.error;

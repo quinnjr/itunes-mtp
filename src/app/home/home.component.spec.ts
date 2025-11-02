@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideAnimations } from '@angular/platform-browser/animations';
 import { provideHttpClient } from '@angular/common/http';
-import { NO_ERRORS_SCHEMA } from '@angular/core';
+import { NO_ERRORS_SCHEMA, provideZonelessChangeDetection } from '@angular/core';
 import { vi } from 'vitest';
 
 import { HomeComponent } from './home.component';
@@ -20,13 +20,19 @@ describe('HomeComponent', () => {
       imports: [HomeComponent],
       providers: [
         provideAnimations(),
-        provideHttpClient()
+        provideHttpClient(),
+        provideZonelessChangeDetection()
       ],
       schemas: [NO_ERRORS_SCHEMA]
     });
 
+    // Compile components and wait for resolution
+    await TestBed.compileComponents();
+    await TestBed.flushEffects();
+
     fixture = TestBed.createComponent(HomeComponent);
     component = fixture.componentInstance;
+    // In zoneless mode, detectChanges() still works but change detection is automatic
     fixture.detectChanges();
   });
 
