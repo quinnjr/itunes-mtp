@@ -322,6 +322,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore] // Ignore in CI to avoid COM initialization crashes
     fn test_mtp_manager_creation() {
         // Test that we can create an MTP manager
         let result = ThreadSafeMtpManager::new();
@@ -329,6 +330,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Ignore in CI to avoid COM initialization crashes
     fn test_get_devices() {
         // Test that we can enumerate devices (may be empty if no devices connected)
         let manager = ThreadSafeMtpManager::new()
