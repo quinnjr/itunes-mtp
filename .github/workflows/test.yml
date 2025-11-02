@@ -66,7 +66,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        rust-version: ['stable', '1.75.0']
+        rust-version: ['stable']
 
     steps:
       - name: Checkout code
@@ -93,7 +93,8 @@ jobs:
       - name: Install cargo-tarpaulin (for coverage on Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          cargo install cargo-tarpaulin
+          # Install latest cargo-tarpaulin (requires Rust stable, edition2024 support)
+          cargo install cargo-tarpaulin --locked
 
       - name: Run Rust unit tests
         working-directory: src-tauri
