@@ -470,12 +470,12 @@ impl MtpDevice {
     }
 
     /// Upload a file from local filesystem to the MTP device
-    /// 
+    ///
     /// # Arguments
     /// * `local_path` - Path to the local file to upload
     /// * `parent_folder_id` - Object ID of the parent folder on the device
     /// * `file_name` - Name to use for the file on the device
-    /// 
+    ///
     /// # Returns
     /// Object ID of the uploaded file on the device
     pub fn upload_file(&self, local_path: &str, parent_folder_id: &str, file_name: &str) -> Result<String, Box<dyn Error>> {
@@ -552,7 +552,7 @@ impl MtpDevice {
                     bytes_read as u32,
                     Some(&mut bytes_written),
                 );
-                
+
                 if write_result.is_err() {
                     return Err(Box::new(MtpError::TransferError(
                         format!("Failed to write to device stream: {:?}", write_result)
@@ -576,7 +576,7 @@ impl MtpDevice {
             // Get the created object ID
             let object_id_str = object_id.to_string()
                 .unwrap_or_else(|_| String::new());
-            
+
             if object_id_str.is_empty() {
                 // Fallback: enumerate parent folder to find the file by name and size
                 let files = self.list_files(Some(parent_folder_id))?;
@@ -585,7 +585,7 @@ impl MtpDevice {
                         return Ok(file.object_id);
                     }
                 }
-                
+
                 return Err(Box::new(MtpError::TransferError(
                     "File uploaded but could not retrieve object ID".to_string()
                 )));
@@ -599,8 +599,8 @@ impl MtpDevice {
 /// Determine content type GUID based on file extension
 fn determine_content_type(file_name: &str) -> GUID {
     let lower = file_name.to_lowercase();
-    
-    if lower.ends_with(".mp3") || lower.ends_with(".m4a") || lower.ends_with(".m4p") || 
+
+    if lower.ends_with(".mp3") || lower.ends_with(".m4a") || lower.ends_with(".m4p") ||
        lower.ends_with(".aac") || lower.ends_with(".wma") || lower.ends_with(".wav") ||
        lower.ends_with(".flac") || lower.ends_with(".ogg") {
         WPD_CONTENT_TYPE_AUDIO

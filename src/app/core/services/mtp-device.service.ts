@@ -188,4 +188,109 @@ export class MtpDeviceService {
   public getError(): string | null {
     return this.error();
   }
+
+  /**
+   * Create a folder on the connected device
+   * @param parentId Object ID of the parent folder
+   * @param folderName Name of the folder to create
+   * @returns Object ID of the created folder
+   */
+  public async createFolder(parentId: string, folderName: string): Promise<string> {
+    if (!this.isConnected()) {
+      throw new Error('No device connected');
+    }
+
+    try {
+      const folderId = await invoke<string>('create_folder', {
+        parentId,
+        folderName
+      });
+      console.log('Folder created:', folderName, 'with ID:', folderId);
+      
+      // Refresh device files to show the new folder
+      await this.loadDeviceFiles(this._currentFolder() || undefined);
+      
+      return folderId;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to create folder:', errorMessage);
+      throw new Error(`Failed to create folder: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Ensure a folder path exists on the device, creating all necessary parent folders
+   * @param baseFolderId Object ID of the base folder to start from
+   * @param path Folder path (e.g., "Music/Artist Name/Album Name")
+   * @returns Object ID of the final folder
+   */
+  public async ensureFolderPath(baseFolderId: string, path: string): Promise<string> {
+    if (!this.isConnected()) {
+      throw new Error('No device connected');
+    }
+
+    try {
+      const folderId = await invoke<string>('ensure_folder_path', {
+        baseFolderId,
+        path
+      });
+      console.log('Folder path ensured:', path, 'with final folder ID:', folderId);
+      return folderId;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to ensure folder path:', errorMessage);
+      throw new Error(`Failed to ensure folder path: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Get or create the base Music folder on the device
+   * @returns Object ID of the Music folder
+   */
+  public async getOrCreateMusicFolder(): Promise<string> {
+    if (!this.isConnected()) {
+      throw new Error('No device connected');
+    }
+
+    try {
+      const musicFolderId = await invoke<string>('get_or_create_music_folder');
+      console.log('Music folder ID:', musicFolderId);
+      return musicFolderId;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to get or create Music folder:', errorMessage);
+      throw new Error(`Failed to get or create Music folder: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Upload a file from local filesystem to the connected device
+   * @param localPath Path to the local file to upload
+   * @param parentFolderId Object ID of the parent folder on the device
+   * @param fileName Name to use for the file on the device
+   * @returns Object ID of the uploaded file
+   */
+  public async uploadFile(localPath: string, parentFolderId: string, fileName: string): Promise<string> {
+    if (!this.isConnected()) {
+      throw new Error('No device connected');
+    }
+
+    try {
+      const objectId = await invoke<string>('upload_file', {
+        localPath,
+        parentFolderId,
+        fileName
+      });
+      console.log('File uploaded successfully:', fileName, 'with object ID:', objectId);
+      
+      // Refresh device files to show the new file
+      await this.loadDeviceFiles(parentFolderId);
+      
+      return objectId;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to upload file:', errorMessage);
+      throw new Error(`Failed to upload file: ${errorMessage}`);
+    }
+  }
 }
