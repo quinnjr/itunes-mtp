@@ -1,4 +1,4 @@
-import { Injectable, signal, WritableSignal, computed } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import { invoke } from '@tauri-apps/api/core';
 import { SyncProgress, SyncResult } from '../../shared/models/sync.model';
 import { Playlist } from '../../shared/models/library.model';
@@ -37,12 +37,11 @@ export class SyncService {
       : 0
   );
 
-  constructor() {}
 
   /**
    * Start syncing selected playlists to the connected device
    */
-  public async startSync(playlists: Playlist[], deviceFolder: string = 'Music'): Promise<SyncResult> {
+  public async startSync(playlists: Playlist[], deviceFolder = 'Music'): Promise<SyncResult> {
     if (playlists.length === 0) {
       const result: SyncResult = {
         success: false,

@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { MtpDeviceService } from './core/services/mtp-device.service';
@@ -12,7 +12,7 @@ import { DeviceInfo, FileInfo } from './shared/models/device.model';
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
-export class AppComponent implements OnInit {
+export class AppComponent {
   // Inject services using inject() function for better zoneless compatibility
   private readonly mtpDeviceService = inject(MtpDeviceService);
   private readonly appStateService = inject(AppStateService);
@@ -24,10 +24,7 @@ export class AppComponent implements OnInit {
   public readonly currentFolder = this.mtpDeviceService.currentFolder;
   public readonly appState = this.appStateService.appState;
 
-  public async ngOnInit(): Promise<void> {
-    // Services are initialized in their constructors
-    // No need to manually refresh devices as it's done automatically
-  }
+  // ngOnInit not needed - services initialized in constructors
 
   public async refreshDevices(): Promise<void> {
     await this.mtpDeviceService.refreshDevices();

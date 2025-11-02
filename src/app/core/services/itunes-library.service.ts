@@ -1,4 +1,4 @@
-import { Injectable, signal, WritableSignal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { invoke } from '@tauri-apps/api/core';
 import { ITunesLibrary, LibraryState, Track, Playlist } from '../../shared/models/library.model';
 import { AsyncHandlerService } from './async-handler.service';
@@ -39,7 +39,7 @@ export class ItunesLibraryService {
   public readonly library = computed<ITunesLibrary | null>(() => this._library());
   public readonly error = computed<string | null>(() => this._error());
 
-  constructor() {}
+  // Constructor not needed - services injected via inject()
 
   /**
    * Parse an iTunes library XML file
@@ -69,7 +69,9 @@ export class ItunesLibraryService {
         };
       },
       {
-        setLoading: () => {}, // No loading state for parsing
+        setLoading: () => {
+          // No loading state for parsing - intentionally empty
+        },
         setData: (result) => {
           this._isLoaded.set(true);
           this._fileName.set(result.fileName);
