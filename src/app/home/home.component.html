@@ -104,9 +104,12 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
           @for (playlist of playlists(); track playlist.name) {
-            <div
+            <button
+              type="button"
               (click)="togglePlaylist(playlist)"
-              class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all"
+              (keydown.enter)="togglePlaylist(playlist)"
+              (keydown.space)="togglePlaylist(playlist)"
+              class="w-full flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all"
               [class.bg-itunes-accent]="isPlaylistSelected(playlist)"
               [class.bg-itunes-hover]="!isPlaylistSelected(playlist)"
               [class.hover:bg-itunes-selected]="!isPlaylistSelected(playlist)">
@@ -120,7 +123,7 @@
               @if (isPlaylistSelected(playlist)) {
                 <i class="pi pi-check text-white"></i>
               }
-            </div>
+            </button>
           }
         </div>
       </div>

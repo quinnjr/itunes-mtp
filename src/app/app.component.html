@@ -63,16 +63,19 @@
           }
           @for (device of devices(); track device.device_id) {
             <li>
-              <a
+              <button
+                type="button"
                 (click)="selectDevice(device)"
-                class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-itunes-hover transition-colors cursor-pointer"
+                (keydown.enter)="selectDevice(device)"
+                (keydown.space)="selectDevice(device)"
+                class="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-itunes-hover transition-colors cursor-pointer"
                 [class.bg-itunes-selected]="getSelectedDevice()?.device_id === device.device_id">
                 <i class="pi pi-mobile text-itunes-accent"></i>
                 <div class="flex-1 min-w-0">
                   <div class="truncate text-sm">{{ device.friendly_name }}</div>
                   <div class="truncate text-xs text-itunes-text-secondary">{{ device.manufacturer }}</div>
                 </div>
-              </a>
+              </button>
             </li>
           }
         </ul>
@@ -99,11 +102,16 @@
               </div>
             }
             @for (file of deviceFiles(); track file.object_id) {
-              <div
+              <button
+                type="button"
                 (click)="browseFolder(file)"
-                class="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-itunes-hover transition-colors cursor-pointer"
+                (keydown.enter)="browseFolder(file)"
+                (keydown.space)="browseFolder(file)"
+                [disabled]="!file.is_folder"
+                class="w-full flex items-center gap-2 px-3 py-1.5 rounded hover:bg-itunes-hover transition-colors"
                 [class.cursor-pointer]="file.is_folder"
-                [class.cursor-default]="!file.is_folder">
+                [class.cursor-default]="!file.is_folder"
+                [class.opacity-50]="!file.is_folder">
                 <i class="pi"
                    [class.pi-folder]="file.is_folder"
                    [class.pi-file]="!file.is_folder"
@@ -118,7 +126,7 @@
                     </div>
                   }
                 </div>
-              </div>
+              </button>
             }
           </div>
         </div>

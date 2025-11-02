@@ -27,7 +27,7 @@ export class HomeComponent {
   public readonly selectedPlaylists = this.itunesLibraryService.selectedPlaylists;
   public readonly appState = this.appStateService.appState;
 
-  public onFileSelect(event: any): void {
+  public onFileSelect(event: { files: File[] }): void {
     const file = event.files[0];
     if (!file) return;
 

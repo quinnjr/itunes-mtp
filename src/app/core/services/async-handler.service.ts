@@ -74,7 +74,7 @@ export class AsyncHandlerService {
   /**
    * Create a computed signal that combines multiple async states
    */
-  public combineAsyncStates<T extends Record<string, ReturnType<typeof signal<AsyncState<any>>>>>(
+  public combineAsyncStates<T extends Record<string, ReturnType<typeof signal<AsyncState<unknown>>>>>(
     states: T
   ): ReturnType<typeof computed<{
     loading: boolean;

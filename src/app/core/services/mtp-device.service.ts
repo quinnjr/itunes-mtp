@@ -1,4 +1,4 @@
-import { Injectable, signal, WritableSignal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { invoke } from '@tauri-apps/api/core';
 import { DeviceInfo, FileInfo, DeviceConnectionState } from '../../shared/models/device.model';
 import { AsyncHandlerService } from './async-handler.service';
@@ -117,7 +117,9 @@ export class MtpDeviceService {
         return files;
       },
       {
-        setLoading: () => {}, // No loading state for file loading
+        setLoading: () => {
+          // No loading state for file loading - intentionally empty
+        },
         setData: (files) => {
           this._deviceFiles.set(files);
           this._currentFolder.set(folderId || null);
