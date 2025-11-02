@@ -10,7 +10,8 @@ pnpm lint || {
 
 # Run TypeScript/Angular tests
 echo "🧪 Running tests..."
-pnpm test --run || {
+# Use local project's vitest to ensure dependencies are available
+pnpm exec vitest run || {
   echo "❌ Tests failed. Please fix failing tests before committing."
   exit 1
 }
@@ -19,16 +20,22 @@ pnpm test --run || {
 echo "🦀 Running Rust clippy..."
 cd src-tauri
 if command -v cargo > /dev/null 2>&1; then
-  cargo clippy --all-targets --all-features -- -D warnings || {
-    echo "❌ Rust clippy failed. Please fix warnings."
-    cd ..
-    exit 1
-  }
-  echo "✅ Rust clippy passed"
+  # Check if clippy is installed
+  if cargo clippy --version > /dev/null 2>&1; then
+    cargo clippy --all-targets --all-features -- -D warnings || {
+      echo "❌ Rust clippy failed. Please fix warnings."
+      echo "   To install clippy: rustup component add clippy"
+      cd ..
+      exit 1
+    }
+    echo "✅ Rust clippy passed"
+  else
+    echo "⚠️  Rust clippy not installed. Skipping Rust linting."
+    echo "   To install: rustup component add clippy"
+  fi
 else
   echo "⚠️  Cargo not found, skipping Rust linting"
 fi
 cd ..
 
 echo "✅ All pre-commit checks passed!"
-
