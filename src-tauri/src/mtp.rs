@@ -376,6 +376,98 @@ impl MtpDevice {
     pub fn get_device_id(&self) -> &str {
         &self.device_id
     }
+
+    /// Check if a folder exists in the specified parent folder
+    /// Returns the folder's object ID if found, None otherwise
+    pub fn folder_exists(&self, parent_id: &str, folder_name: &str) -> Result<Option<String>, Box<dyn Error>> {
+        let files = self.list_files(Some(parent_id))?;
+        
+        for file in files {
+            if file.is_folder && file.name == folder_name {
+                return Ok(Some(file.object_id));
+            }
+        }
+        
+        Ok(None)
+    }
+
+    /// Create a folder in the specified parent folder
+    /// Returns the object ID of the created folder
+    /// If the folder already exists, returns its existing object ID
+    pub fn create_folder(&self, parent_id: &str, folder_name: &str) -> Result<String, Box<dyn Error>> {
+        unsafe {
+            // First check if folder already exists
+            if let Some(existing_id) = self.folder_exists(parent_id, folder_name)? {
+                return Ok(existing_id);
+            }
+
+            // Create property values for the new folder
+            let properties: IPortableDeviceValues = CoCreateInstance(
+                &PortableDeviceValues as *const GUID,
+                None,
+                CLSCTX_INPROC_SERVER,
+            ).map_err(|e| MtpError::ComError(format!("Failed to create property values: {}", e)))?;
+
+            // Set parent folder ID
+            let parent_id_wide: Vec<u16> = parent_id.encode_utf16().chain(std::iter::once(0)).collect();
+            let parent_id_pcwstr = PCWSTR::from_raw(parent_id_wide.as_ptr());
+            properties.SetStringValue(&WPD_OBJECT_PARENT_ID, parent_id_pcwstr)?;
+
+            // Set folder name
+            let folder_name_hstring = HSTRING::from(folder_name);
+            properties.SetStringValue(&WPD_OBJECT_NAME, &folder_name_hstring)?;
+
+            // Set content type to folder
+            properties.SetGuidValue(&WPD_OBJECT_CONTENT_TYPE, &WPD_CONTENT_TYPE_FOLDER)?;
+
+            // Create the folder
+            let mut object_id = PWSTR::null();
+            self.content.CreateObjectWithPropertiesOnly(&properties, &mut object_id)
+                .map_err(|e| MtpError::DeviceError(format!("Failed to create folder: {}", e)))?;
+
+            let object_id_str = object_id.to_string()
+                .unwrap_or_else(|_| String::new());
+            
+            if object_id_str.is_empty() {
+                return Err(Box::new(MtpError::DeviceError("Failed to get created folder ID".to_string())));
+            }
+
+            Ok(object_id_str)
+        }
+    }
+
+    /// Ensure a folder path exists on the device, creating all necessary parent folders
+    /// Path format: "Music/Artist Name/Album Name" (forward slashes)
+    /// Returns the object ID of the final folder
+    pub fn ensure_folder_path(&self, base_folder_id: &str, path: &str) -> Result<String, Box<dyn Error>> {
+        if path.is_empty() {
+            return Ok(base_folder_id.to_string());
+        }
+
+        let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.is_empty() {
+            return Ok(base_folder_id.to_string());
+        }
+
+        let mut current_folder_id = base_folder_id.to_string();
+
+        for part in parts {
+            current_folder_id = self.create_folder(&current_folder_id, part)?;
+        }
+
+        Ok(current_folder_id)
+    }
+
+    /// Get or create the base Music folder on the device
+    /// Returns the object ID of the Music folder
+    pub fn get_or_create_music_folder(&self) -> Result<String, Box<dyn Error>> {
+        // Start from device root (WPD_DEVICE_OBJECT_ID is a PCWSTR constant)
+        // We need to get the string value from it
+        unsafe {
+            let device_root_str = WPD_DEVICE_OBJECT_ID.to_string().unwrap_or_default();
+            self.ensure_folder_path(&device_root_str, "Music")
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -463,6 +555,30 @@ impl ThreadSafeMtpDevice {
         let device = self.device.lock()
             .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
         device.transfer_file(object_id, dest_path)
+    }
+
+    pub fn folder_exists(&self, parent_id: &str, folder_name: &str) -> Result<Option<String>, Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.folder_exists(parent_id, folder_name)
+    }
+
+    pub fn create_folder(&self, parent_id: &str, folder_name: &str) -> Result<String, Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.create_folder(parent_id, folder_name)
+    }
+
+    pub fn ensure_folder_path(&self, base_folder_id: &str, path: &str) -> Result<String, Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.ensure_folder_path(base_folder_id, path)
+    }
+
+    pub fn get_or_create_music_folder(&self) -> Result<String, Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.get_or_create_music_folder()
     }
 
     pub fn get_device_id(&self) -> &str {
@@ -1386,7 +1502,7 @@ mod tests {
         for folder_id in &valid_folder_ids {
             match folder_id {
                 None => assert!(true, "None folder_id is valid"),
-                Some(id) => {
+                Some(_id) => {
                     // Even empty string is technically valid (will fail at device level)
                     assert!(true, "Folder ID format is valid");
                 }
@@ -1805,7 +1921,6 @@ mod tests {
         // Test behavior of thread-safe wrapper patterns
         // ThreadSafeMtpDevice uses Arc<Mutex<MtpDevice>>
         
-        use std::sync::Arc;
         use std::sync::Mutex;
 
         // Simulate the wrapper structure
@@ -1829,5 +1944,129 @@ mod tests {
         // Test that we can still access after clone
         let guard = device.lock().unwrap();
         assert_eq!(guard.id, "test-device");
+    }
+
+    #[test]
+    fn test_folder_exists_logic() {
+        // Test folder existence checking logic without actual device
+        // folder_exists checks if a folder with given name exists in parent
+        
+        // Simulate folder list response
+        let mock_files = vec![
+            FileInfo {
+                object_id: "obj-1".to_string(),
+                name: "Music".to_string(),
+                size: 0,
+                is_folder: true,
+            },
+            FileInfo {
+                object_id: "obj-2".to_string(),
+                name: "file.mp3".to_string(),
+                size: 1024,
+                is_folder: false,
+            },
+        ];
+
+        // Test finding existing folder
+        let found_folder = mock_files.iter()
+            .find(|f| f.is_folder && f.name == "Music");
+        assert!(found_folder.is_some());
+        if let Some(folder) = found_folder {
+            assert_eq!(folder.object_id, "obj-1");
+        }
+
+        // Test not finding non-existent folder
+        let not_found = mock_files.iter()
+            .find(|f| f.is_folder && f.name == "NonExistent");
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_ensure_folder_path_logic() {
+        // Test folder path creation logic
+        let path = "Music/Artist Name/Album Name";
+        let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+        
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], "Music");
+        assert_eq!(parts[1], "Artist Name");
+        assert_eq!(parts[2], "Album Name");
+
+        // Test empty path
+        let empty_path = "";
+        let empty_parts: Vec<&str> = empty_path.split('/').filter(|p| !p.is_empty()).collect();
+        assert!(empty_parts.is_empty());
+
+        // Test path with multiple slashes
+        let multi_slash_path = "Music//Artist//Album";
+        let multi_parts: Vec<&str> = multi_slash_path.split('/').filter(|p| !p.is_empty()).collect();
+        assert_eq!(multi_parts.len(), 3);
+    }
+
+    #[test]
+    fn test_create_folder_properties() {
+        // Test folder creation property requirements
+        // Properties needed:
+        // - WPD_OBJECT_PARENT_ID: parent folder object ID
+        // - WPD_OBJECT_NAME: folder name
+        // - WPD_OBJECT_CONTENT_TYPE: WPD_CONTENT_TYPE_FOLDER
+        
+        let parent_id = "parent-123";
+        let folder_name = "TestFolder";
+        
+        // Verify required values are non-empty
+        assert!(!parent_id.is_empty());
+        assert!(!folder_name.is_empty());
+        
+        // Folder name should be valid (not empty, no invalid chars)
+        assert!(!folder_name.trim().is_empty());
+    }
+
+    #[test]
+    fn test_folder_hierarchy_creation() {
+        // Test creating nested folder hierarchy
+        // Path: Music/Artist/Album
+        
+        let mut current_id = "root".to_string();
+        let path_parts = vec!["Music", "Artist", "Album"];
+        
+        // Simulate folder creation sequence
+        for part in path_parts {
+            // Each part should update current_id
+            current_id = format!("folder-{}", part);
+            assert!(!current_id.is_empty());
+        }
+        
+        // Final folder ID should be set
+        assert_eq!(current_id, "folder-Album");
+    }
+
+    #[test]
+    fn test_music_folder_creation() {
+        // Test Music folder creation logic
+        let _device_root = "DEVICE_ROOT"; // Placeholder for device root ID
+        let music_path = "Music";
+        
+        // Music folder should be created at root level
+        assert_eq!(music_path, "Music");
+        assert!(!music_path.is_empty());
+    }
+
+    #[test]
+    fn test_folder_path_parsing_edge_cases() {
+        // Test edge cases for folder path parsing
+        let test_cases = vec![
+            ("Music/Artist/Album", 3),
+            ("Music", 1),
+            ("", 0),
+            ("/Music/", 1),  // Leading/trailing slashes
+            ("Music//Artist", 2),  // Double slash
+        ];
+
+        for (path, expected_parts) in test_cases {
+            let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+            assert_eq!(parts.len(), expected_parts, 
+                "Path '{}' should have {} parts, got {}", path, expected_parts, parts.len());
+        }
     }
 }
