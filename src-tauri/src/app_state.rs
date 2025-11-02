@@ -58,7 +58,7 @@ pub struct ITunesLibrary {
 /// Decode iTunes file:// URL to a proper file path
 /// iTunes stores file paths as `file://localhost/C:/Music/...` URLs
 /// This function converts them to Windows paths like `C:\Music\...`
-/// 
+///
 /// Handles:
 /// - `file://localhost/C:/Music/...` → `C:\Music\...`
 /// - `file:///C:/Music/...` → `C:\Music\...`
@@ -88,7 +88,7 @@ fn decode_itunes_url(url: &str) -> String {
 
     // Check if this is a network path (file://server/share/...)
     // Network paths: don't have localhost, don't have drive letter (C:/), have at least one /
-    let is_network_path = !is_localhost && 
+    let is_network_path = !is_localhost &&
                           !path.chars().next().map(|c| c.is_ascii_alphabetic() && path.chars().nth(1) == Some(':')).unwrap_or(false) &&
                           path.contains('/');
 

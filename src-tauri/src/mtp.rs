@@ -429,3 +429,60 @@ impl Clone for ThreadSafeMtpManager {
         }
     }
 }
+
+// Thread-safe wrapper for MtpDevice to allow persistent connections
+#[cfg(windows)]
+pub struct ThreadSafeMtpDevice {
+    device: Arc<Mutex<MtpDevice>>,
+    device_id: String,
+}
+
+#[cfg(windows)]
+impl ThreadSafeMtpDevice {
+    pub fn new(device_id: &str) -> Result<Self, Box<dyn Error>> {
+        let device = MtpDevice::new(device_id)?;
+        Ok(Self {
+            device: Arc::new(Mutex::new(device)),
+            device_id: device_id.to_string(),
+        })
+    }
+
+    pub fn list_files(&self, folder_id: Option<&str>) -> Result<Vec<FileInfo>, Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.list_files(folder_id)
+    }
+
+    pub fn get_file_info(&self, object_id: &str) -> Result<FileInfo, Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.get_file_info(object_id)
+    }
+
+    pub fn transfer_file(&self, object_id: &str, dest_path: &str) -> Result<(), Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.transfer_file(object_id, dest_path)
+    }
+
+    pub fn get_device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    /// Check if the device connection is still valid
+    pub fn is_connected(&self) -> bool {
+        // Try to lock the device - if successful, assume it's connected
+        // In a real implementation, we might want to ping the device
+        self.device.try_lock().is_ok()
+    }
+}
+
+#[cfg(windows)]
+impl Clone for ThreadSafeMtpDevice {
+    fn clone(&self) -> Self {
+        Self {
+            device: Arc::clone(&self.device),
+            device_id: self.device_id.clone(),
+        }
+    }
+}

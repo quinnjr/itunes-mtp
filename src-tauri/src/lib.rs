@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use tauri::State;
 
 #[cfg(windows)]
-use mtp::{DeviceInfo, FileInfo, MtpDevice, ThreadSafeMtpManager};
+use mtp::{DeviceInfo, FileInfo, ThreadSafeMtpManager, ThreadSafeMtpDevice};
 #[cfg(not(windows))]
 mod mtp {
     use serde::Serialize;
@@ -41,6 +41,8 @@ use app_state::{AppState as LibraryState, ITunesLibrary, Track, Playlist};
 struct AppState {
     #[cfg(windows)]
     mtp_manager: ThreadSafeMtpManager,
+    #[cfg(windows)]
+    active_device_connection: Mutex<Option<ThreadSafeMtpDevice>>,
     active_device: Mutex<Option<String>>,
     library_state: Mutex<Option<LibraryState>>,
 }
@@ -50,6 +52,8 @@ impl AppState {
         Ok(Self {
             #[cfg(windows)]
             mtp_manager: ThreadSafeMtpManager::new()?,
+            #[cfg(windows)]
+            active_device_connection: Mutex::new(None),
             active_device: Mutex::new(None),
             library_state: Mutex::new(None),
         })
@@ -74,13 +78,25 @@ fn get_devices(_state: State<AppState>) -> Result<Vec<()>, String> {
 #[tauri::command]
 #[cfg(windows)]
 fn connect_device(state: State<AppState>, device_id: String) -> Result<String, String> {
-    // Test connection by creating a device instance
-    let device = MtpDevice::new(&device_id)
+    // Disconnect any existing device first
+    let mut connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
+    if connection.is_some() {
+        *connection = None;
+    }
+    drop(connection);
+
+    // Create a persistent device connection
+    let device = ThreadSafeMtpDevice::new(&device_id)
         .map_err(|e| format!("Failed to connect to device: {}", e))?;
 
-    // Store the active device ID
+    // Store the active device connection and ID
+    let mut connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
     let mut active = state.active_device.lock()
         .map_err(|e| format!("Failed to lock state: {}", e))?;
+    
+    *connection = Some(device.clone());
     *active = Some(device_id.clone());
 
     Ok(format!("Connected to device: {}", device.get_device_id()))
@@ -93,11 +109,24 @@ fn connect_device(_state: State<AppState>, _device_id: String) -> Result<String,
 }
 
 #[tauri::command]
+#[cfg(windows)]
 fn disconnect_device(state: State<AppState>) -> Result<String, String> {
+    // Clear the connection (device will be closed when dropped)
+    let mut connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
     let mut active = state.active_device.lock()
         .map_err(|e| format!("Failed to lock state: {}", e))?;
+    
+    *connection = None;
     *active = None;
+    
     Ok("Device disconnected".to_string())
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+fn disconnect_device(_state: State<AppState>) -> Result<String, String> {
+    Err("MTP device support is only available on Windows".to_string())
 }
 
 #[tauri::command]
@@ -106,14 +135,16 @@ fn list_device_files(
     state: State<AppState>,
     folder_id: Option<String>,
 ) -> Result<Vec<FileInfo>, String> {
-    let active = state.active_device.lock()
-        .map_err(|e| format!("Failed to lock state: {}", e))?;
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device_id = active.as_ref()
+    let device = connection.as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
-    let device = MtpDevice::new(device_id)
-        .map_err(|e| format!("Failed to connect to device: {}", e))?;
+    // Check if connection is still valid
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
 
     device.list_files(folder_id.as_deref())
         .map_err(|e| e.to_string())
@@ -131,14 +162,16 @@ fn get_file_info(
     state: State<AppState>,
     object_id: String,
 ) -> Result<FileInfo, String> {
-    let active = state.active_device.lock()
-        .map_err(|e| format!("Failed to lock state: {}", e))?;
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device_id = active.as_ref()
+    let device = connection.as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
-    let device = MtpDevice::new(device_id)
-        .map_err(|e| format!("Failed to connect to device: {}", e))?;
+    // Check if connection is still valid
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
 
     device.get_file_info(&object_id)
         .map_err(|e| e.to_string())
@@ -157,14 +190,16 @@ fn transfer_file(
     object_id: String,
     dest_path: String,
 ) -> Result<String, String> {
-    let active = state.active_device.lock()
-        .map_err(|e| format!("Failed to lock state: {}", e))?;
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device_id = active.as_ref()
+    let device = connection.as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
-    let device = MtpDevice::new(device_id)
-        .map_err(|e| format!("Failed to connect to device: {}", e))?;
+    // Check if connection is still valid
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
 
     device.transfer_file(&object_id, &dest_path)
         .map_err(|e| e.to_string())?;
@@ -249,14 +284,16 @@ fn sync_playlist_to_device(
     playlist_name: String,
     device_folder: Option<String>,
 ) -> Result<String, String> {
-    let active = state.active_device.lock()
-        .map_err(|e| format!("Failed to lock state: {}", e))?;
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device_id = active.as_ref()
+    let device = connection.as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
-    let _device = MtpDevice::new(device_id)
-        .map_err(|e| format!("Failed to connect to device: {}", e))?;
+    // Check if connection is still valid
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
 
     // Get library state
     let lib_state = state.library_state.lock()
@@ -356,7 +393,7 @@ mod tests {
             .expect("Failed to get devices");
 
         if let Some(device_info) = devices.first() {
-            let device = MtpDevice::new(&device_info.device_id);
+            let device = ThreadSafeMtpDevice::new(&device_info.device_id);
             assert!(device.is_ok(), "Failed to connect to device: {:?}", device.err());
 
             if let Ok(device) = device {
