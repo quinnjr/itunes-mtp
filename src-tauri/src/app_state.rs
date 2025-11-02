@@ -722,7 +722,7 @@ mod tests {
 
         let mut state = AppState::default();
         let result = state.parse_library(temp_file.path());
-        
+
         // Should either succeed with partial data or fail gracefully
         match result {
             Ok(library) => {
@@ -881,7 +881,7 @@ mod tests {
         let playlist = library.playlists.iter()
             .find(|p| p.name == "Duplicates")
             .expect("Playlist should exist");
-        
+
         // All three entries should be included
         assert_eq!(playlist.tracks.len(), 3);
         assert_eq!(playlist.tracks, vec!["1", "1", "1"]);
@@ -929,7 +929,7 @@ mod tests {
         let playlist = library.playlists.iter()
             .find(|p| p.name == "With Invalid")
             .expect("Playlist should exist");
-        
+
         // Should include valid track IDs (1) and invalid one (999)
         assert!(playlist.tracks.contains(&"1".to_string()));
         assert!(playlist.tracks.contains(&"999".to_string()));
@@ -967,7 +967,7 @@ mod tests {
         let playlist = library.playlists.iter()
             .find(|p| p.name == "Empty Playlist")
             .expect("Playlist should exist");
-        
+
         assert_eq!(playlist.tracks.len(), 0);
     }
 
@@ -1000,7 +1000,7 @@ mod tests {
         let playlist = library.playlists.iter()
             .find(|p| p.name == "No Items Key")
             .expect("Playlist should exist");
-        
+
         // Should have empty tracks vector
         assert_eq!(playlist.tracks.len(), 0);
     }
@@ -1079,10 +1079,10 @@ mod tests {
     #[test]
     fn test_file_not_found() {
         let nonexistent_path = std::path::Path::new("/nonexistent/path/library.xml");
-        
+
         let mut state = AppState::default();
         let result = state.parse_library(nonexistent_path);
-        
+
         // Should return an error for nonexistent file
         assert!(result.is_err(), "Should fail on nonexistent file");
     }
@@ -1092,7 +1092,7 @@ mod tests {
         let long_name = "A".repeat(1000);
         let long_artist = "B".repeat(1000);
         let long_album = "C".repeat(1000);
-        
+
         let xml = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1166,10 +1166,6 @@ mod tests {
         let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
 
         // "All Items" playlists (master/library) should be excluded from regular playlists
-        let regular_playlists: Vec<_> = library.playlists.iter()
-            .filter(|p| p.name != "Library")
-            .collect();
-        
         // The "All Items Playlist" should either be included or excluded based on implementation
         // This test verifies the behavior
         assert!(library.playlists.len() >= 0);
@@ -1189,7 +1185,7 @@ mod tests {
 
         let mut state = AppState::default();
         let result = state.parse_library(temp_file.path());
-        
+
         // Should handle invalid XML gracefully - either error or partial parse
         match result {
             Ok(_) => {
@@ -1243,14 +1239,14 @@ mod tests {
 
         let mut state = AppState::default();
         let result = state.parse_library(temp_file.path());
-        
+
         // This test verifies nested playlist structures
         // XML parsing may fail for complex structures - that's acceptable for edge case testing
         match result {
             Ok(library) => {
                 // Should parse both folder and playlist
                 assert!(library.playlists.len() >= 1);
-                
+
                 let folder = library.playlists.iter()
                     .find(|p| p.name == "Folder");
                 if let Some(folder) = folder {
