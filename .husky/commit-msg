@@ -1,3 +1,4 @@
+﻿#!/usr/bin/env sh
 echo "📝 Validating commit message..."
 
 # Use commitlint to validate commit message format

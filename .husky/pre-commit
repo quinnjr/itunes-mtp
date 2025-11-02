@@ -1,3 +1,4 @@
+﻿#!/usr/bin/env sh
 echo "🔍 Running linters and tests..."
 
 # Run TypeScript/Angular linting

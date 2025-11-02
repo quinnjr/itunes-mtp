@@ -1,3 +1,4 @@
+﻿#!/usr/bin/env sh
 echo "🛡️  Checking branch protection rules..."
 
 # Get the current branch name
