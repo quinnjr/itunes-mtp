@@ -1,0 +1,61 @@
+---
+alwaysApply: false
+---
+
+# Rust Development Rules
+
+## Code Style and Formatting
+- Always use `cargo fmt` for code formatting before committing
+- Follow Rust naming conventions: snake_case for variables/functions, PascalCase for types
+- Use rustfmt default style (100 character line width)
+- Prefer explicit types when it improves readability
+
+## Error Handling
+- Always use Result<T, E> for fallible operations, never panic in library code
+- Implement Error trait for custom error types
+- Use `?` operator for error propagation when appropriate
+- Provide meaningful error messages with context
+- For errors crossing FFI boundaries (Tauri), ensure errors are Send + Sync
+
+## Memory Safety
+- Prefer borrowing (&T) over owned values (T) when possible
+- Use Arc<Mutex<T>> for shared mutable state across threads
+- Avoid unsafe blocks unless absolutely necessary, and document why unsafe is needed
+- Use RAII patterns for resource management
+
+## Tauri-Specific Patterns
+- Use `#[tauri::command]` for exposed functions
+- Return serializable types (use serde Serialize/Deserialize)
+- Use async commands for I/O operations
+- Handle COM initialization properly for Windows APIs
+- Use `unsafe` blocks responsibly when working with Windows COM APIs
+
+## Windows API Usage
+- Always initialize COM before using COM-based APIs
+- Use proper error checking for Windows API calls (HRESULT checks)
+- Clean up COM objects properly (call Release() when done)
+- Use windows-rs bindings, prefer safe wrappers when available
+- Document unsafe blocks that interact with Windows APIs
+
+## Testing
+- Write unit tests alongside code
+- Use `#[cfg(test)]` for test modules
+- Test error paths as well as success paths
+- Mock external dependencies when appropriate
+
+## Dependencies
+- Keep dependencies minimal and well-maintained
+- Use workspace dependencies when sharing code between crates
+- Document why external crates are needed
+
+## Performance
+- Prefer zero-copy operations when possible
+- Use iterators instead of loops for better optimization
+- Profile before optimizing
+- Avoid unnecessary allocations
+
+## Documentation
+- Use /// for public API documentation
+- Include examples in doc comments for complex functions
+- Document safety invariants for unsafe code
+- Explain non-obvious algorithms or workarounds

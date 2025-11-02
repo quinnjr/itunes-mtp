@@ -2,17 +2,16 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    str,
 };
 
-use quick_xml::{events::{Event, BytesText}, Reader, name::QName};
+use quick_xml::{events::Event, Reader, name::QName};
 
 use crate::mtp::MtpDevice;
 
 use crate::errors::SyncError;
 
 // A minimal Track struct
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct Track {
     pub id: String,
     pub name: String,
@@ -21,14 +20,14 @@ pub struct Track {
 }
 
 // A minimal Playlist struct
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct Playlist {
     pub name: String,
     pub tracks: Vec<String>, // Track IDs
 }
 
 // iTunesLibrary containing tracks and playlists
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize)]
 pub struct ITunesLibrary {
     pub tracks: HashMap<String, Track>,
     pub playlists: Vec<Playlist>,
@@ -45,14 +44,14 @@ impl AppState {
     pub fn parse_library(&mut self, path: &Path) -> Result<ITunesLibrary, SyncError> {
         let xml = fs::read_to_string(path)?;
         let mut reader = Reader::from_str(&xml);
-        reader.trim_text(true);
+        reader.config_mut().trim_text(true);
 
         let mut library = ITunesLibrary::default();
         let mut current_track: Option<Track> = None;
-        let mut current_playlist: Option<Playlist> = None;
+        let _current_playlist: Option<Playlist> = None;
         let mut in_tracks = false;
         let mut in_playlists = false;
-        let mut current_key: Option<String> = None;
+        let current_key: Option<String> = None;
 
         loop {
             match reader.read_event() {
@@ -108,7 +107,7 @@ impl AppState {
         Ok(library)
     }
 
-    pub fn sync_to_mtp(&self, device: &MtpDevice) -> Result<(), SyncError> {
+    pub fn sync_to_mtp(&self, _device: &MtpDevice) -> Result<(), SyncError> {
         unimplemented!();
     }
 

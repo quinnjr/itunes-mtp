@@ -1,0 +1,189 @@
+import { Injectable, signal, WritableSignal, computed, inject } from '@angular/core';
+import { invoke } from '@tauri-apps/api/core';
+import { DeviceInfo, FileInfo, DeviceConnectionState } from '../../shared/models/device.model';
+import { AsyncHandlerService } from './async-handler.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class MtpDeviceService {
+  // Inject async handler service
+  private readonly asyncHandler = inject(AsyncHandlerService);
+
+  // Private writable signals
+  private readonly _devices = signal<DeviceInfo[]>([]);
+  private readonly _isLoading = signal<boolean>(false);
+  private readonly _error = signal<string | null>(null);
+  private readonly _activeDevice = signal<DeviceInfo | null>(null);
+  private readonly _deviceFiles = signal<FileInfo[]>([]);
+  private readonly _currentFolder = signal<string | null>(null);
+
+  // Public readonly signals
+  public readonly devices = this._devices.asReadonly();
+  public readonly deviceFiles = this._deviceFiles.asReadonly();
+  public readonly currentFolder = this._currentFolder.asReadonly();
+
+  // Computed signals for derived state
+  public readonly connectionState = computed<DeviceConnectionState>(() => ({
+    isConnected: this._activeDevice() !== null,
+    activeDevice: this._activeDevice(),
+    isLoading: this._isLoading(),
+    error: this._error()
+  }));
+
+  public readonly isConnected = computed<boolean>(() => this._activeDevice() !== null);
+  public readonly isLoading = computed<boolean>(() => this._isLoading());
+  public readonly error = computed<string | null>(() => this._error());
+  public readonly activeDevice = computed<DeviceInfo | null>(() => this._activeDevice());
+
+  constructor() {
+    // Initialize by loading devices
+    this.refreshDevices();
+  }
+
+  /**
+   * Refresh the list of available MTP devices
+   */
+  public async refreshDevices(): Promise<void> {
+    await this.asyncHandler.executeAsync(
+      async () => {
+        const deviceList = await invoke<DeviceInfo[]>('get_devices');
+        console.log('Devices loaded:', deviceList.length);
+        return deviceList;
+      },
+      {
+        setLoading: (loading) => this._isLoading.set(loading),
+        setData: (devices) => this._devices.set(devices),
+        setError: (error) => {
+          this._error.set(error);
+          if (error) this._devices.set([]);
+        }
+      }
+    );
+  }
+
+  /**
+   * Connect to a specific MTP device
+   */
+  public async connectToDevice(device: DeviceInfo): Promise<void> {
+    await this.asyncHandler.executeAsync(
+      async () => {
+        await invoke('connect_device', { deviceId: device.device_id });
+        console.log('Connected to device:', device.friendly_name);
+        return device;
+      },
+      {
+        setLoading: (loading) => this._isLoading.set(loading),
+        setData: (connectedDevice) => {
+          this._activeDevice.set(connectedDevice);
+          // Load device files after successful connection
+          this.loadDeviceFiles();
+        },
+        setError: (error) => this._error.set(error)
+      }
+    );
+  }
+
+  /**
+   * Disconnect from the current device
+   */
+  public async disconnectDevice(): Promise<void> {
+    try {
+      await invoke('disconnect_device');
+
+      this._activeDevice.set(null);
+      this._deviceFiles.set([]);
+      this._currentFolder.set(null);
+
+      console.log('Device disconnected');
+    } catch (error) {
+      console.error('Failed to disconnect device:', error);
+    }
+  }
+
+  /**
+   * Load files from the connected device
+   */
+  public async loadDeviceFiles(folderId?: string): Promise<void> {
+    if (!this.isConnected()) {
+      console.warn('No device connected');
+      return;
+    }
+
+    await this.asyncHandler.executeAsync(
+      async () => {
+        const files = await invoke<FileInfo[]>('list_device_files', { folderId });
+        console.log('Device files loaded:', files.length);
+        return files;
+      },
+      {
+        setLoading: () => {}, // No loading state for file loading
+        setData: (files) => {
+          this._deviceFiles.set(files);
+          this._currentFolder.set(folderId || null);
+        },
+        setError: (error) => {
+          console.error('Failed to load device files:', error);
+          this._deviceFiles.set([]);
+        }
+      }
+    );
+  }
+
+  /**
+   * Browse into a folder
+   */
+  public async browseFolder(file: FileInfo): Promise<void> {
+    if (file.is_folder) {
+      await this.loadDeviceFiles(file.object_id);
+    }
+  }
+
+  /**
+   * Go up one folder level
+   */
+  public async goUpFolder(): Promise<void> {
+    await this.loadDeviceFiles();
+  }
+
+  /**
+   * Get detailed information about a specific file
+   */
+  public async getFileInfo(objectId: string): Promise<FileInfo | null> {
+    try {
+      const fileInfo = await invoke<FileInfo>('get_file_info', { objectId });
+      return fileInfo;
+    } catch (error) {
+      console.error('Failed to get file info:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Transfer a file from device to local storage
+   */
+  public async transferFile(objectId: string, destPath: string): Promise<boolean> {
+    try {
+      await invoke('transfer_file', { objectId, destPath });
+      console.log('File transferred successfully:', destPath);
+      return true;
+    } catch (error) {
+      console.error('Failed to transfer file:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get the currently connected device
+   */
+  public getActiveDevice(): DeviceInfo | null {
+    return this.activeDevice();
+  }
+
+  /**
+   * Get the current error state
+   */
+  public getError(): string | null {
+    return this.error();
+  }
+}

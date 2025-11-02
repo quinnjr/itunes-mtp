@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 Running linters and tests..."
+
+# Run TypeScript/Angular linting
+echo "📋 Running ESLint..."
+pnpm lint || {
+  echo "❌ ESLint failed. Run 'pnpm lint:fix' to auto-fix issues."
+  exit 1
+}
+
+# Run TypeScript/Angular tests
+echo "🧪 Running tests..."
+pnpm test --run || {
+  echo "❌ Tests failed. Please fix failing tests before committing."
+  exit 1
+}
+
+# Run Rust linting (clippy) if available
+echo "🦀 Running Rust clippy..."
+cd src-tauri
+if command -v cargo > /dev/null 2>&1; then
+  cargo clippy --all-targets --all-features -- -D warnings || {
+    echo "❌ Rust clippy failed. Please fix warnings."
+    cd ..
+    exit 1
+  }
+  echo "✅ Rust clippy passed"
+else
+  echo "⚠️  Cargo not found, skipping Rust linting"
+fi
+cd ..
+
+echo "✅ All pre-commit checks passed!"
+

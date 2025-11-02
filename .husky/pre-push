@@ -1,0 +1,76 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🛡️  Checking branch protection rules..."
+
+# Get the current branch name
+current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+
+# Get the branch being pushed to
+while read local_ref local_sha remote_ref remote_sha
+do
+  if [ -n "$remote_ref" ]; then
+    target_branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    break
+  fi
+done
+
+# If no target branch found, try to get it from command line args
+if [ -z "$target_branch" ]; then
+  target_branch=$(echo "$@" | grep -oP 'refs/heads/\K[^\s]+' || echo "")
+fi
+
+# Protected branches
+protected_branches="main development"
+
+# Check if pushing to a protected branch
+for protected in $protected_branches; do
+  if [ "$target_branch" = "$protected" ] || [ "$target_branch" = "refs/heads/$protected" ]; then
+    # Check if current branch is a feature branch (starts with feature/)
+    if echo "$current_branch" | grep -q "^feature/"; then
+      echo "✅ Pushing feature branch '$current_branch' to '$protected' is allowed via merge"
+      exit 0
+    fi
+
+    # Check if this is a merge commit (has multiple parents)
+    if git show --format="%P" -s HEAD 2>/dev/null | grep -q " "; then
+      echo "✅ This is a merge commit, allowing push to '$protected'"
+      exit 0
+    fi
+
+    # For main branch: only allow merges from development
+    if [ "$target_branch" = "main" ] || [ "$target_branch" = "refs/heads/main" ]; then
+      if [ "$current_branch" = "development" ]; then
+        echo "✅ Pushing from 'development' to 'main' is allowed"
+        exit 0
+      else
+        echo "❌ Direct pushes to 'main' are not allowed."
+        echo "   'main' can only be updated via merge from 'development'"
+        echo "   Current branch: $current_branch"
+        exit 1
+      fi
+    fi
+
+    # For development branch: only allow from feature branches
+    if [ "$target_branch" = "development" ] || [ "$target_branch" = "refs/heads/development" ]; then
+      if echo "$current_branch" | grep -q "^feature/"; then
+        echo "✅ Pushing feature branch '$current_branch' to 'development' is allowed"
+        exit 0
+      else
+        echo "❌ Direct pushes to 'development' are not allowed."
+        echo "   'development' can only be updated via merge from feature branches (feature/*)"
+        echo "   Current branch: $current_branch"
+        exit 1
+      fi
+    fi
+
+    # Default: block direct commits to protected branches
+    echo "❌ Direct commits to protected branch '$protected' are not allowed."
+    echo "   Use a feature branch and create a pull/merge request instead."
+    echo "   Current branch: $current_branch"
+    exit 1
+  fi
+done
+
+echo "✅ Branch protection check passed!"
+

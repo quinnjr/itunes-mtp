@@ -12,6 +12,11 @@
   "projects": {
     "itunes-mtp": {
       "projectType": "application",
+      "schematics": {
+        "@schematics/angular:component": {
+          "style": "scss"
+        }
+      },
       "root": "",
       "sourceRoot": "src",
       "prefix": "app",
@@ -26,8 +31,12 @@
               "zone.js"
             ],
             "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
             "assets": [
               "src/assets"
+            ],
+            "styles": [
+              "src/styles.scss"
             ]
           },
           "configurations": {
@@ -82,10 +91,11 @@
           }
         },
         "test": {
-          "builder": "@angular-builders/jest:run",
+          "builder": "@angular/build:unit-test",
           "options": {
-            "jestConfig": "jest.config.js",
-            "passWithNoTests": true
+            "tsConfig": "tsconfig.spec.json",
+            "runner": "vitest",
+            "buildTarget": "::development"
           }
         }
       }

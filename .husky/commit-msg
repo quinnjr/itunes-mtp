@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "📝 Validating commit message..."
+
+# Use commitlint to validate commit message format
+pnpm exec commitlint --edit "$1" || {
+  echo "❌ Commit message validation failed."
+  echo "📖 Commit messages must follow conventional commit format:"
+  echo "   feat: add new feature"
+  echo "   fix: resolve bug"
+  echo "   docs: update documentation"
+  echo "   style: code formatting changes"
+  echo "   refactor: code refactoring"
+  echo "   perf: performance improvements"
+  echo "   test: add or update tests"
+  echo "   build: build system changes"
+  echo "   ci: CI/CD changes"
+  echo "   chore: other changes"
+  echo "   revert: revert previous commit"
+  exit 1
+}
+
+echo "✅ Commit message is valid!"
+

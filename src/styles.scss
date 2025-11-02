@@ -1,0 +1,7 @@
+@use "tailwindcss" as tw;
+
+@import "primeicons/primeicons.css";
+
+.p-fileupload-basic.custom-upload {
+  justify-content: start !important;
+}

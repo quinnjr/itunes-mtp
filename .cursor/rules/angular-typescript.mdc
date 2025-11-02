@@ -1,0 +1,81 @@
+---
+alwaysApply: false
+---
+
+# Angular & TypeScript Development Rules
+
+## Angular Best Practices
+
+### Components and Architecture
+- Always use standalone components (Angular 20 style)
+- Use `inject()` function instead of constructor injection for better zoneless compatibility
+- Prefer signals over RxJS observables when possible (Angular 20 signals API)
+- Use `OnPush` change detection strategy when appropriate
+- Keep components focused on presentation logic only
+
+### Services
+- Use services for business logic and state management
+- Services should be provided at the root level unless specific scoping is needed
+- Use signals for reactive state management in services
+- Prefer `inject()` function over constructor injection
+
+### TypeScript Configuration
+- Strict mode is enabled - always type everything explicitly
+- No implicit any types allowed
+- Use strict null checks
+- Enable `noImplicitReturns`, `noFallthroughCasesInSwitch`
+- Use `noPropertyAccessFromIndexSignature` for safer property access
+
+### Testing
+- Use Vitest for all TypeScript/JavaScript testing (not Jasmine/Jest)
+- Test files should have `.spec.ts` extension
+- Use `vitest/globals` types (configured in tsconfig.json)
+- Write unit tests for services and components
+- Mock Tauri API calls in tests
+- Ensure all unit tests pass before moving on to new work
+
+### Package Management
+- Always use `pnpm` instead of npm or yarn
+- Run `pnpm install` to add dependencies
+- Use `pnpm add -D` for dev dependencies
+
+### JavaScript Module Files
+- **ALWAYS use `.mjs` extension for JavaScript configuration files**
+- Never use `.js` or `.cjs` extensions for JavaScript files
+- All JavaScript files must use ESM (ES Modules) syntax
+- Use `import`/`export` instead of `require`/`module.exports`
+- Package.json is configured with `"type": "module"` for ESM-only mode
+
+### Code Style
+- Follow Angular style guide conventions
+- Use SCSS for component styles (configured in angular.json)
+- Use async/await instead of promise chains when possible
+- Prefer readonly properties when values don't change
+- Use public readonly signals exposed from services
+
+### Error Handling
+- Handle errors in async operations properly
+- Use try/catch blocks for async/await
+- Provide meaningful error messages to users
+- Log errors appropriately (console.error for development)
+
+### Angular Routing
+- Use standalone route configuration
+- Prefer functional guards and resolvers
+- Keep routes organized in app.routes.ts
+
+### Tauri Integration
+- Use `@tauri-apps/api` for Tauri commands
+- Handle Tauri command responses as Promises
+- Use proper TypeScript types for Tauri responses
+
+### Performance
+- Use OnPush change detection where possible
+- Prefer signals over observables for simple reactive state
+- Lazy load routes when appropriate
+- Optimize bundle size by importing only needed modules
+
+### Documentation
+- Add JSDoc comments for public methods
+- Document complex business logic
+- Include parameter and return type descriptions

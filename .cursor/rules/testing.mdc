@@ -1,0 +1,197 @@
+---
+alwaysApply: false
+---
+
+# Testing Rules
+
+## Mandatory Test File Creation
+- **ALWAYS** create unit test files alongside any code files generated or modified
+- For TypeScript/JavaScript files: create a `.spec.ts` file with the same base name
+- For Rust files: create tests within the same file using `#[cfg(test)]` module or a separate `tests/` directory module
+- Never skip test file creation - it is a non-negotiable requirement
+
+## Test Coverage Requirements
+- **Target 80% code coverage minimum** for all files generated or modified by Cursor
+- Aim for comprehensive coverage including:
+  - Happy path scenarios
+  - Error conditions and edge cases
+  - Boundary conditions
+  - Both public and private functions (when testable)
+- Use coverage tools to verify:
+  - TypeScript: Vitest coverage reports (`pnpm test --coverage`)
+  - Rust: `cargo tarpaulin` or `cargo test -- --nocapture` with coverage analysis
+
+## TypeScript/JavaScript Testing (Vitest)
+
+### Test File Structure
+- Use `.spec.ts` extension for all test files
+- Place test files next to the source files they test (e.g., `component.spec.ts` alongside `component.ts`)
+- Import from `vitest/globals` for test utilities (configured in tsconfig.json)
+
+### Angular Component Testing
+- Use `TestBed.configureTestingModule()` for component setup
+- Import standalone components directly in test imports
+- Use `ComponentFixture` for component testing
+- Test component initialization, inputs, outputs, and template interactions
+- Mock services using `inject()` or provider overrides
+
+### Service Testing
+- Mock dependencies (especially Tauri API calls)
+- Test all public methods
+- Test error handling and edge cases
+- Use Vitest's `vi.fn()` for mocking and `vi.mock()` for module mocking
+- Test async operations with proper async/await handling
+
+### Test Organization
+- Use `describe()` blocks to group related tests
+- Use descriptive test names that explain what is being tested
+- Follow AAA pattern (Arrange, Act, Assert)
+- Keep tests isolated - each test should be independent
+
+### Coverage for Services
+- Test all public methods
+- Test error paths (try/catch blocks, error returns)
+- Test edge cases (empty arrays, null values, boundary conditions)
+- Test signal updates and reactive behavior
+- Mock external dependencies (Tauri APIs, HTTP calls)
+
+### Example Test Structure
+```typescript
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+
+describe('ComponentName', () => {
+  let component: ComponentName;
+  let fixture: ComponentFixture<ComponentName>;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [ComponentName],
+      // Add necessary mocks and providers
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(ComponentName);
+    component = fixture.componentInstance;
+  });
+
+  it('should create', () => {
+    expect(component).toBeTruthy();
+  });
+
+  // Add more test cases to achieve 80% coverage
+});
+```
+
+## Rust Testing
+
+### Test Organization
+- Place unit tests in the same file using `#[cfg(test)]` module
+- Place integration tests in `tests/` directory
+- Use `#[test]` attribute for test functions
+- Use `#[should_panic]` for tests that should panic (use sparingly)
+
+### Test Coverage
+- Test all public functions
+- Test error cases (Result::Err variants)
+- Test edge cases and boundary conditions
+- Test with various input types and invalid inputs
+- Test unsafe code paths when applicable
+
+### Mocking and Test Utilities
+- Use mock objects for external dependencies
+- Create test fixtures for complex data structures
+- Use helper functions to reduce test code duplication
+- Test both success and failure paths
+
+### Windows API Testing
+- Mock Windows API calls when possible
+- Use conditional compilation for platform-specific tests
+- Test error handling for COM initialization failures
+- Test resource cleanup
+
+### Example Test Structure
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_function_success() {
+        // Arrange
+        let input = create_test_input();
+
+        // Act
+        let result = function_under_test(input);
+
+        // Assert
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_function_error_case() {
+        // Arrange
+        let invalid_input = create_invalid_input();
+
+        // Act
+        let result = function_under_test(invalid_input);
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    // Add more tests to achieve 80% coverage
+}
+```
+
+## Test Quality Standards
+
+### Test Naming
+- Use descriptive names that explain what is being tested
+- Follow pattern: `test_<what>_<condition>_<expected_result>` for Rust
+- Follow pattern: `it('should <expected behavior> when <condition>')` for TypeScript
+
+### Test Independence
+- Each test must be able to run independently
+- Avoid test dependencies and shared mutable state
+- Use setup/teardown (beforeEach/afterEach) properly
+
+### Assertions
+- Use clear, specific assertions
+- Test one thing per test case
+- Include meaningful assertion messages when helpful
+
+### Test Performance
+- Keep tests fast - unit tests should complete in milliseconds
+- Avoid real I/O operations - mock external dependencies
+- Use async tests properly for asynchronous code
+
+## Coverage Verification
+
+### Before Completing Work
+1. Run test suite and ensure all tests pass
+2. Generate coverage report
+3. Verify 80% minimum coverage is achieved
+4. Identify and add tests for uncovered code paths
+5. Document any exceptions to coverage requirements (with justification)
+
+### Coverage Tools
+- TypeScript: `pnpm test --coverage` (Vitest coverage)
+- Rust: `cargo tarpaulin --out Html` or similar coverage tools
+
+## Integration with CI/CD
+- Ensure all tests pass before committing
+- Coverage reports should be generated as part of the build process
+- Failing tests or insufficient coverage should block merges
+
+## Exceptions and Documentation
+- If 80% coverage cannot be achieved (e.g., untestable Windows API code), document why
+- Provide clear comments explaining why certain code paths cannot be tested
+- Prioritize testing business logic over trivial getters/setters (but still aim for 80%)
+
+## Best Practices
+- Write tests FIRST when possible (TDD approach)
+- Keep tests simple and readable
+- Refactor tests along with production code
+- Remove or update obsolete tests
+- Use test doubles (mocks, stubs, fakes) appropriately
+- Test behavior, not implementation details

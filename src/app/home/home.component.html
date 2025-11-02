@@ -1,0 +1,203 @@
+<!-- Header -->
+<header class="border-b border-gray-800 bg-itunes-sidebar">
+  <div class="px-6 py-4">
+    <h2 class="text-2xl font-bold flex items-center gap-3">
+      <i class="pi pi-home text-itunes-accent"></i>
+      Library Sync
+    </h2>
+    <p class="text-sm text-itunes-text-secondary mt-1">
+      Transfer your iTunes library to MTP devices
+    </p>
+  </div>
+</header>
+
+<!-- Main Content -->
+<div class="flex-1 overflow-y-auto p-6 space-y-6 animate-slide-in">
+  <!-- Library Upload Section -->
+  <section class="bg-itunes-sidebar rounded-xl border border-gray-800 overflow-hidden">
+    <div class="p-6 border-b border-gray-800">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <i class="pi pi-file text-itunes-accent"></i>
+        iTunes Library
+      </h3>
+      <p class="text-sm text-itunes-text-secondary mt-1">
+        Load your iTunes library XML file to begin syncing
+      </p>
+    </div>
+
+    <div class="p-6">
+      @if (!libraryLoaded()) {
+        <div class="border-2 border-dashed border-gray-700 rounded-lg p-8 text-center hover:border-itunes-accent transition-colors">
+          <div class="flex flex-col items-center gap-4">
+            <div class="w-16 h-16 bg-itunes-hover rounded-full flex items-center justify-center">
+              <i class="pi pi-upload text-2xl text-itunes-accent"></i>
+            </div>
+            <div>
+              <p-fileupload
+                mode="basic"
+                chooseLabel="Choose iTunes Library XML"
+                [showUploadButton]="false"
+                [showCancelButton]="false"
+                (onSelect)="onFileSelect($event)"
+                accept=".xml"
+                styleClass="custom-upload"
+              />
+              <p class="text-sm text-itunes-text-secondary mt-2">
+                or drag and drop your file here
+              </p>
+            </div>
+          </div>
+        </div>
+      } @else {
+        <div class="flex items-center justify-between p-4 bg-itunes-hover rounded-lg">
+          <div class="flex items-center gap-3">
+            <i class="pi pi-check-circle text-green-500 text-xl"></i>
+            <div>
+              <p class="font-semibold">{{ libraryFileName() }}</p>
+              <p class="text-sm text-itunes-text-secondary">
+                {{ trackCount() }} tracks • {{ playlistCount() }} playlists
+              </p>
+            </div>
+          </div>
+          <button
+            (click)="clearLibrary()"
+            class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors">
+            <i class="pi pi-times mr-2"></i>
+            Clear
+          </button>
+        </div>
+      }
+    </div>
+  </section>
+
+  <!-- Playlists Section -->
+  @if (libraryLoaded()) {
+    <section class="bg-itunes-sidebar rounded-xl border border-gray-800 overflow-hidden">
+      <div class="p-6 border-b border-gray-800">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+          <i class="pi pi-list text-itunes-accent"></i>
+          Playlists
+        </h3>
+        <p class="text-sm text-itunes-text-secondary mt-1">
+          Select playlists to sync to your device
+        </p>
+      </div>
+
+      <div class="p-6">
+        <div class="mb-4 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <button
+              (click)="selectAllPlaylists()"
+              class="px-3 py-1.5 bg-itunes-hover hover:bg-itunes-selected rounded-lg text-sm transition-colors">
+              Select All
+            </button>
+            <button
+              (click)="deselectAllPlaylists()"
+              class="px-3 py-1.5 bg-itunes-hover hover:bg-itunes-selected rounded-lg text-sm transition-colors">
+              Deselect All
+            </button>
+          </div>
+          <div class="text-sm text-itunes-text-secondary">
+            {{ selectedPlaylists().length }} selected
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
+          @for (playlist of playlists(); track playlist.name) {
+            <div
+              (click)="togglePlaylist(playlist)"
+              class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all"
+              [class.bg-itunes-accent]="isPlaylistSelected(playlist)"
+              [class.bg-itunes-hover]="!isPlaylistSelected(playlist)"
+              [class.hover:bg-itunes-selected]="!isPlaylistSelected(playlist)">
+              <div class="w-10 h-10 bg-itunes-bg rounded-lg flex items-center justify-center flex-shrink-0">
+                <i class="pi pi-list text-itunes-accent"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="font-medium truncate">{{ playlist.name }}</p>
+                <p class="text-xs text-itunes-text-secondary">{{ playlist.trackCount || playlist.tracks.length }} tracks</p>
+              </div>
+              @if (isPlaylistSelected(playlist)) {
+                <i class="pi pi-check text-white"></i>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- Sync Actions -->
+    <section class="bg-itunes-sidebar rounded-xl border border-gray-800 overflow-hidden">
+      <div class="p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-semibold">Ready to Sync</h3>
+            <p class="text-sm text-itunes-text-secondary mt-1">
+              @if (selectedPlaylists().length > 0) {
+                {{ selectedPlaylists().length }} playlist(s) will be transferred
+              } @else {
+                Select playlists to begin
+              }
+            </p>
+          </div>
+          <button
+            (click)="startSync()"
+            [disabled]="!canSync()"
+            class="px-6 py-3 bg-itunes-accent hover:bg-red-600 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-xl font-semibold transition-colors flex items-center gap-2">
+            @if (isSyncing()) {
+              <i class="pi pi-spin pi-spinner"></i>
+              <span>Syncing...</span>
+            } @else {
+              <i class="pi pi-sync"></i>
+              <span>Start Sync</span>
+            }
+          </button>
+        </div>
+
+        @if (syncProgress() > 0) {
+          <div class="mt-4">
+            <div class="flex items-center justify-between text-sm mb-2">
+              <span class="text-itunes-text-secondary">Progress</span>
+              <span class="font-semibold">{{ syncProgress() }}%</span>
+            </div>
+            <div class="w-full bg-itunes-hover rounded-full h-2 overflow-hidden">
+              <div
+                class="bg-itunes-accent h-full transition-all duration-300 rounded-full"
+                [style.width.%]="syncProgress()">
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    </section>
+  }
+
+  <!-- Empty State -->
+  @if (!libraryLoaded()) {
+    <section class="bg-itunes-sidebar rounded-xl border border-gray-800 p-12 text-center">
+      <div class="max-w-md mx-auto">
+        <div class="w-20 h-20 bg-itunes-hover rounded-full flex items-center justify-center mx-auto mb-4">
+          <i class="pi pi-info-circle text-4xl text-itunes-accent"></i>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Get Started</h3>
+        <p class="text-itunes-text-secondary mb-6">
+          Upload your iTunes library XML file to begin syncing your music and playlists to your MTP device.
+        </p>
+        <div class="space-y-2 text-left text-sm text-itunes-text-secondary">
+          <div class="flex items-start gap-2">
+            <i class="pi pi-check text-green-500 mt-0.5"></i>
+            <p>Export your iTunes library as XML from iTunes/Music app</p>
+          </div>
+          <div class="flex items-start gap-2">
+            <i class="pi pi-check text-green-500 mt-0.5"></i>
+            <p>Connect your MTP device (Android phone, tablet, etc.)</p>
+          </div>
+          <div class="flex items-start gap-2">
+            <i class="pi pi-check text-green-500 mt-0.5"></i>
+            <p>Select playlists and start syncing</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  }
+</div>
