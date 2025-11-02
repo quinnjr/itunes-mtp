@@ -18,12 +18,24 @@ pub struct Track {
     pub name: String,
     pub artist: String,
     pub album: Option<String>,
+    pub album_artist: Option<String>,
     pub genre: Option<String>,
+    pub composer: Option<String>,
     pub year: Option<u32>,
+    pub track_number: Option<u32>,
+    pub disc_number: Option<u32>,
     pub duration: Option<u32>, // milliseconds
     pub play_count: Option<u32>,
+    pub skip_count: Option<u32>,
     pub rating: Option<u32>,
+    pub bpm: Option<u32>,
     pub date_added: Option<String>,
+    pub date_modified: Option<String>,
+    pub last_played: Option<String>,
+    pub skip_date: Option<String>,
+    pub comments: Option<String>,
+    pub kind: Option<String>, // File type (e.g., "MPEG audio file")
+    pub size: Option<u64>, // File size in bytes
     pub location: String,
 }
 
@@ -163,12 +175,24 @@ impl AppState {
                                 "Name" => track.name = text_str,
                                 "Artist" => track.artist = text_str,
                                 "Album" => track.album = Some(text_str),
+                                "Album Artist" => track.album_artist = Some(text_str),
                                 "Genre" => track.genre = Some(text_str),
+                                "Composer" => track.composer = Some(text_str),
                                 "Year" => track.year = text_str.parse().ok(),
+                                "Track Number" => track.track_number = text_str.parse().ok(),
+                                "Disc Number" => track.disc_number = text_str.parse().ok(),
                                 "Total Time" => track.duration = text_str.parse().ok(),
                                 "Play Count" => track.play_count = text_str.parse().ok(),
+                                "Skip Count" => track.skip_count = text_str.parse().ok(),
                                 "Rating" => track.rating = text_str.parse().ok(),
+                                "BPM" => track.bpm = text_str.parse().ok(),
                                 "Date Added" => track.date_added = Some(text_str.clone()),
+                                "Date Modified" => track.date_modified = Some(text_str.clone()),
+                                "Play Date UTC" | "Play Date" => track.last_played = Some(text_str.clone()),
+                                "Skip Date" => track.skip_date = Some(text_str.clone()),
+                                "Comments" => track.comments = Some(text_str),
+                                "Kind" => track.kind = Some(text_str),
+                                "Size" => track.size = text_str.parse().ok(),
                                 "Location" => track.location = decode_itunes_url(&text_str),
                                 _ => {}
                             }
@@ -197,7 +221,7 @@ impl AppState {
                     match e.name() {
                         QName(b"dict") => {
                             dict_depth -= 1;
-                            
+
                             // End of a track (track dict is at tracks_dict_depth + 1)
                             if in_tracks_dict && dict_depth == tracks_dict_depth {
                                 if let Some(track) = current_track.take() {
@@ -305,12 +329,24 @@ mod tests {
             <key>Name</key><string>Test Song 1</string>
             <key>Artist</key><string>Test Artist</string>
             <key>Album</key><string>Test Album</string>
+            <key>Album Artist</key><string>Test Album Artist</string>
             <key>Genre</key><string>Rock</string>
+            <key>Composer</key><string>Test Composer</string>
             <key>Year</key><integer>2020</integer>
+            <key>Track Number</key><integer>1</integer>
+            <key>Disc Number</key><integer>1</integer>
             <key>Total Time</key><integer>180000</integer>
             <key>Play Count</key><integer>5</integer>
+            <key>Skip Count</key><integer>1</integer>
             <key>Rating</key><integer>80</integer>
+            <key>BPM</key><integer>120</integer>
             <key>Date Added</key><date>2020-01-01T12:00:00Z</date>
+            <key>Date Modified</key><date>2020-01-02T12:00:00Z</date>
+            <key>Play Date UTC</key><date>2020-01-03T12:00:00Z</date>
+            <key>Skip Date</key><date>2020-01-04T12:00:00Z</date>
+            <key>Comments</key><string>Test comment</string>
+            <key>Kind</key><string>MPEG audio file</string>
+            <key>Size</key><integer>3456789</integer>
             <key>Location</key><string>file://localhost/C:/Music/Test%20Artist/Test%20Album/Test%20Song%201.mp3</string>
         </dict>
         <key>2</key>
@@ -384,18 +420,30 @@ mod tests {
         // Check we parsed 2 tracks
         assert_eq!(library.tracks.len(), 2, "Should parse 2 tracks");
 
-        // Check track 1
+        // Check track 1 - verify all metadata fields
         let track1 = library.tracks.get("1").expect("Track 1 should exist");
         assert_eq!(track1.id, "1");
         assert_eq!(track1.name, "Test Song 1");
         assert_eq!(track1.artist, "Test Artist");
         assert_eq!(track1.album, Some("Test Album".to_string()));
+        assert_eq!(track1.album_artist, Some("Test Album Artist".to_string()));
         assert_eq!(track1.genre, Some("Rock".to_string()));
+        assert_eq!(track1.composer, Some("Test Composer".to_string()));
         assert_eq!(track1.year, Some(2020));
+        assert_eq!(track1.track_number, Some(1));
+        assert_eq!(track1.disc_number, Some(1));
         assert_eq!(track1.duration, Some(180000));
         assert_eq!(track1.play_count, Some(5));
+        assert_eq!(track1.skip_count, Some(1));
         assert_eq!(track1.rating, Some(80));
+        assert_eq!(track1.bpm, Some(120));
         assert!(track1.date_added.is_some());
+        assert!(track1.date_modified.is_some());
+        assert!(track1.last_played.is_some());
+        assert!(track1.skip_date.is_some());
+        assert_eq!(track1.comments, Some("Test comment".to_string()));
+        assert_eq!(track1.kind, Some("MPEG audio file".to_string()));
+        assert_eq!(track1.size, Some(3456789));
 
         // Check track 2
         let track2 = library.tracks.get("2").expect("Track 2 should exist");
@@ -463,7 +511,7 @@ mod tests {
             "C:/Music/Song.mp3"
         };
         // urlencoding might add a leading backslash, so we check it ends correctly
-        assert!(result2 == expected2 || result2 == format!("\\{}", expected2) || 
+        assert!(result2 == expected2 || result2 == format!("\\{}", expected2) ||
                 result2.ends_with("Music\\Song.mp3") || result2.ends_with("Music/Song.mp3"),
                 "Result should be {} or end with Music\\Song.mp3, got: {}", expected2, result2);
 
@@ -482,7 +530,7 @@ mod tests {
         let result = decode_itunes_url("C:\\Music\\Song.mp3");
         // On Windows, result might have a leading backslash from urlencoding processing
         // So we check it ends correctly
-        assert!(result == "C:\\Music\\Song.mp3" || result == "\\C:\\Music\\Song.mp3" || 
+        assert!(result == "C:\\Music\\Song.mp3" || result == "\\C:\\Music\\Song.mp3" ||
                 result.ends_with("Music\\Song.mp3"),
                 "Result should be C:\\Music\\Song.mp3 or end with Music\\Song.mp3, got: {}", result);
     }
