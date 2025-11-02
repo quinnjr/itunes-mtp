@@ -95,7 +95,20 @@
           "options": {
             "tsConfig": "tsconfig.spec.json",
             "runner": "vitest",
-            "buildTarget": "::development"
+            "buildTarget": "::development",
+            "codeCoverage": false,
+            "watch": false
+          },
+          "configurations": {
+            "coverage": {
+              "codeCoverage": true,
+              "codeCoverageExclude": [
+                "**/*.spec.ts",
+                "**/*.module.ts",
+                "**/main.ts",
+                "**/polyfills.ts"
+              ]
+            }
           }
         }
       }

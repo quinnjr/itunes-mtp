@@ -10,11 +10,13 @@ pnpm lint || {
 
 # Run TypeScript/Angular tests
 echo "🧪 Running tests..."
-# Use local project's vitest to ensure dependencies are available
-pnpm exec vitest run || {
+# Redirect stderr to capture actual failures vs warnings
+pnpm test 2>&1 | tee /tmp/test-output.log
+TEST_EXIT_CODE=${PIPESTATUS[0]}
+if [ $TEST_EXIT_CODE -ne 0 ]; then
   echo "❌ Tests failed. Please fix failing tests before committing."
   exit 1
-}
+fi
 
 # Run Rust linting (clippy) if available
 echo "🦀 Running Rust clippy..."

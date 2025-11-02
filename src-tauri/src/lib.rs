@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#[cfg(windows)]
 mod mtp;
 mod app_state;
 mod errors;
@@ -6,11 +7,39 @@ mod errors;
 use std::sync::Mutex;
 use tauri::State;
 
+#[cfg(windows)]
 use mtp::{DeviceInfo, FileInfo, MtpDevice, ThreadSafeMtpManager};
+#[cfg(not(windows))]
+mod mtp {
+    use serde::Serialize;
+    #[derive(Debug, Clone, Serialize)]
+    pub struct DeviceInfo {
+        pub device_id: String,
+        pub friendly_name: String,
+        pub manufacturer: String,
+    }
+    #[derive(Debug, Clone, Serialize)]
+    pub struct FileInfo {
+        pub object_id: String,
+        pub name: String,
+        pub size: u64,
+        pub is_folder: bool,
+    }
+    pub struct MtpDevice;
+    pub struct ThreadSafeMtpManager;
+    impl ThreadSafeMtpManager {
+        pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+            Err("MTP support only available on Windows".into())
+        }
+    }
+}
+#[cfg(not(windows))]
+use mtp::{DeviceInfo, FileInfo};
 use app_state::{AppState as LibraryState, ITunesLibrary, Track, Playlist};
 
 // Application state
 struct AppState {
+    #[cfg(windows)]
     mtp_manager: ThreadSafeMtpManager,
     active_device: Mutex<Option<String>>,
     library_state: Mutex<Option<LibraryState>>,
@@ -19,6 +48,7 @@ struct AppState {
 impl AppState {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
+            #[cfg(windows)]
             mtp_manager: ThreadSafeMtpManager::new()?,
             active_device: Mutex::new(None),
             library_state: Mutex::new(None),
@@ -28,6 +58,7 @@ impl AppState {
 
 // Tauri commands
 #[tauri::command]
+#[cfg(windows)]
 fn get_devices(state: State<AppState>) -> Result<Vec<DeviceInfo>, String> {
     state.mtp_manager
         .get_devices()
@@ -35,6 +66,13 @@ fn get_devices(state: State<AppState>) -> Result<Vec<DeviceInfo>, String> {
 }
 
 #[tauri::command]
+#[cfg(not(windows))]
+fn get_devices(_state: State<AppState>) -> Result<Vec<()>, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
+#[tauri::command]
+#[cfg(windows)]
 fn connect_device(state: State<AppState>, device_id: String) -> Result<String, String> {
     // Test connection by creating a device instance
     let device = MtpDevice::new(&device_id)
@@ -49,6 +87,12 @@ fn connect_device(state: State<AppState>, device_id: String) -> Result<String, S
 }
 
 #[tauri::command]
+#[cfg(not(windows))]
+fn connect_device(_state: State<AppState>, _device_id: String) -> Result<String, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
+#[tauri::command]
 fn disconnect_device(state: State<AppState>) -> Result<String, String> {
     let mut active = state.active_device.lock()
         .map_err(|e| format!("Failed to lock state: {}", e))?;
@@ -57,6 +101,7 @@ fn disconnect_device(state: State<AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
+#[cfg(windows)]
 fn list_device_files(
     state: State<AppState>,
     folder_id: Option<String>,
@@ -75,6 +120,13 @@ fn list_device_files(
 }
 
 #[tauri::command]
+#[cfg(not(windows))]
+fn list_device_files(_state: State<AppState>, _folder_id: Option<String>) -> Result<Vec<FileInfo>, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
+#[tauri::command]
+#[cfg(windows)]
 fn get_file_info(
     state: State<AppState>,
     object_id: String,
@@ -93,6 +145,13 @@ fn get_file_info(
 }
 
 #[tauri::command]
+#[cfg(not(windows))]
+fn get_file_info(_state: State<AppState>, _object_id: String) -> Result<FileInfo, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
+#[tauri::command]
+#[cfg(windows)]
 fn transfer_file(
     state: State<AppState>,
     object_id: String,
@@ -111,6 +170,12 @@ fn transfer_file(
         .map_err(|e| e.to_string())?;
 
     Ok(format!("File transferred successfully to: {}", dest_path))
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+fn transfer_file(_state: State<AppState>, _object_id: String, _dest_path: String) -> Result<String, String> {
+    Err("MTP device support is only available on Windows".to_string())
 }
 
 #[tauri::command]
@@ -178,6 +243,7 @@ fn get_tracks(state: State<AppState>) -> Result<Vec<Track>, String> {
 }
 
 #[tauri::command]
+#[cfg(windows)]
 fn sync_playlist_to_device(
     state: State<AppState>,
     playlist_name: String,
@@ -219,6 +285,12 @@ fn sync_playlist_to_device(
     }
 }
 
+#[tauri::command]
+#[cfg(not(windows))]
+fn sync_playlist_to_device(_state: State<AppState>, _playlist_name: String, _device_folder: Option<String>) -> Result<String, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new()
@@ -245,6 +317,7 @@ pub fn run() {
 }
 
 #[cfg(test)]
+#[cfg(windows)]
 mod tests {
     use super::*;
 

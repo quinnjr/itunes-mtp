@@ -1,0 +1,85 @@
+---
+alwaysApply: true
+---
+
+# Git Workflow Rules
+
+## Husky Pre-commit Hooks
+
+**CRITICAL: NEVER skip Husky verification**
+
+- ❌ **NEVER** use `git commit --no-verify` or `-n` flag
+- ❌ **NEVER** bypass pre-commit hooks
+- ✅ **ALWAYS** fix linting errors before committing
+- ✅ **ALWAYS** fix test failures before committing
+- ✅ **ALWAYS** ensure all pre-commit checks pass
+
+## Rationale
+
+The pre-commit hooks enforce code quality and prevent broken code from being committed. Skipping verification defeats the purpose of automated quality checks and can lead to:
+- Broken code in the repository
+- Inconsistent code style
+- Failing tests being committed
+- Technical debt accumulation
+
+## Exceptions
+
+**There are NO exceptions to this rule.** If you encounter issues:
+1. Fix the underlying problem (linting errors, test failures, etc.)
+2. If tests have dependency issues, fix the dependencies first
+3. If linting rules are too strict, adjust the linting rules, not bypass the checks
+4. If pre-commit hook has bugs, fix the hook itself
+
+## When Pre-commit Fails
+
+If pre-commit hooks fail:
+1. Read the error message carefully
+2. Fix all linting errors: `pnpm lint:fix`
+3. Fix all failing tests
+4. Run pre-commit checks manually: `pnpm lint && pnpm test`
+5. Only commit once ALL checks pass
+
+## Commit History Management
+
+**CRITICAL: Maintain linear git commit history**
+
+- ✅ **ALWAYS** squash commits into a single commit per feature/change
+- ✅ **ALWAYS** use `git rebase` instead of merge when updating feature branches
+- ✅ **ALWAYS** use `git reset --soft` or interactive rebase to squash commits before pushing
+- ❌ **NEVER** push multiple commits for the same logical change
+- ❌ **NEVER** use merge commits on feature branches
+- ✅ **ALWAYS** rebase feature branches onto develop/main before creating PR
+
+### Squashing Commits
+
+Before pushing a feature branch:
+1. Check commit history: `git log --oneline develop..HEAD`
+2. If multiple commits exist, squash them:
+   ```bash
+   # Option 1: Interactive rebase
+   git rebase -i develop
+   
+   # Option 2: Soft reset and recommit
+   git reset --soft develop
+   git commit -m "feat(scope): comprehensive description"
+   ```
+3. Verify single commit: `git log --oneline -1`
+4. Force push if needed: `git push origin feature/name --force-with-lease`
+
+### Rationale
+
+- Linear history is easier to read and understand
+- Single commits per feature make code reviews easier
+- Cleaner git log and easier to track changes
+- Better for bisecting bugs
+- Professional git history standards
+
+## Commit Message Format
+
+All commits MUST follow Conventional Commits format:
+- `feat(scope): description`
+- `fix(scope): description`
+- `docs(scope): description`
+- etc.
+
+Commitlint will validate this automatically via pre-commit hooks.

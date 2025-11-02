@@ -1,3 +1,4 @@
+#[cfg(windows)]
 use std::{
     error::Error,
     fmt,
@@ -6,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(windows)]
 use windows::{
     core::*,
     Win32::Devices::PortableDevices::*,
@@ -14,9 +16,11 @@ use windows::{
     Win32::Foundation::RPC_E_CHANGED_MODE,
 };
 
+#[cfg(windows)]
 use serde::Serialize;
 
 // Custom error types
+#[cfg(windows)]
 #[derive(Debug)]
 pub enum MtpError {
     ComError(String),
@@ -26,6 +30,7 @@ pub enum MtpError {
     InvalidOperation(String),
 }
 
+#[cfg(windows)]
 impl fmt::Display for MtpError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -38,12 +43,16 @@ impl fmt::Display for MtpError {
     }
 }
 
+#[cfg(windows)]
 impl Error for MtpError {}
 
+#[cfg(windows)]
 unsafe impl Send for MtpError {}
+#[cfg(windows)]
 unsafe impl Sync for MtpError {}
 
 // Device information
+#[cfg(windows)]
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceInfo {
     pub device_id: String,
@@ -52,6 +61,7 @@ pub struct DeviceInfo {
 }
 
 // File information
+#[cfg(windows)]
 #[derive(Debug, Clone, Serialize)]
 pub struct FileInfo {
     pub object_id: String,
@@ -61,11 +71,13 @@ pub struct FileInfo {
 }
 
 // MTP Device Manager
+#[cfg(windows)]
 pub struct MtpDeviceManager {
     device_manager: IPortableDeviceManager,
     _com_initialized: bool,
 }
 
+#[cfg(windows)]
 impl MtpDeviceManager {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         unsafe {
@@ -151,6 +163,7 @@ impl MtpDeviceManager {
     }
 }
 
+#[cfg(windows)]
 impl Drop for MtpDeviceManager {
     fn drop(&mut self) {
         if self._com_initialized {
@@ -161,10 +174,13 @@ impl Drop for MtpDeviceManager {
     }
 }
 
+#[cfg(windows)]
 unsafe impl Send for MtpDeviceManager {}
+#[cfg(windows)]
 unsafe impl Sync for MtpDeviceManager {}
 
 // MTP Device
+#[cfg(windows)]
 pub struct MtpDevice {
     device: IPortableDevice,
     content: IPortableDeviceContent,
@@ -172,6 +188,7 @@ pub struct MtpDevice {
     _com_initialized: bool,
 }
 
+#[cfg(windows)]
 impl MtpDevice {
     pub fn new(device_id: &str) -> Result<Self, Box<dyn Error>> {
         unsafe {
@@ -194,7 +211,7 @@ impl MtpDevice {
             ).map_err(|e| MtpError::ComError(format!("Failed to create client info: {}", e)))?;
 
             // Set client information
-            client_info.SetStringValue(&WPD_CLIENT_NAME, w!("iTunes MTP Sync"))?;
+            client_info.SetStringValue(&WPD_CLIENT_NAME, &HSTRING::from("iTunes MTP Sync"))?;
             client_info.SetUnsignedIntegerValue(&WPD_CLIENT_MAJOR_VERSION, 1)?;
             client_info.SetUnsignedIntegerValue(&WPD_CLIENT_MINOR_VERSION, 0)?;
             client_info.SetUnsignedIntegerValue(&WPD_CLIENT_REVISION, 0)?;
@@ -245,7 +262,8 @@ impl MtpDevice {
                 }
 
                 for i in 0..fetched as usize {
-                    if let Ok(object_id_str) = object_ids[i].to_string() {
+                    let object_id_str = object_ids[i].to_string().unwrap_or_default();
+                    if !object_id_str.is_empty() {
                         if let Ok(file_info) = self.get_file_info(&object_id_str) {
                             files.push(file_info);
                         }
@@ -360,6 +378,7 @@ impl MtpDevice {
     }
 }
 
+#[cfg(windows)]
 impl Drop for MtpDevice {
     fn drop(&mut self) {
         unsafe {
@@ -375,14 +394,18 @@ impl Drop for MtpDevice {
     }
 }
 
+#[cfg(windows)]
 unsafe impl Send for MtpDevice {}
+#[cfg(windows)]
 unsafe impl Sync for MtpDevice {}
 
 // Thread-safe wrapper
+#[cfg(windows)]
 pub struct ThreadSafeMtpManager {
     manager: Arc<Mutex<MtpDeviceManager>>,
 }
 
+#[cfg(windows)]
 impl ThreadSafeMtpManager {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let manager = MtpDeviceManager::new()?;
@@ -398,6 +421,7 @@ impl ThreadSafeMtpManager {
     }
 }
 
+#[cfg(windows)]
 impl Clone for ThreadSafeMtpManager {
     fn clone(&self) -> Self {
         Self {
