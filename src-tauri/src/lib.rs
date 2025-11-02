@@ -328,6 +328,83 @@ fn sync_playlist_to_device(_state: State<AppState>, _playlist_name: String, _dev
     Err("MTP device support is only available on Windows".to_string())
 }
 
+#[tauri::command]
+#[cfg(windows)]
+fn create_folder(
+    state: State<AppState>,
+    parent_id: String,
+    folder_name: String,
+) -> Result<String, String> {
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
+
+    let device = connection.as_ref()
+        .ok_or_else(|| "No device connected".to_string())?;
+
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
+
+    device.create_folder(&parent_id, &folder_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+fn create_folder(_state: State<AppState>, _parent_id: String, _folder_name: String) -> Result<String, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
+#[tauri::command]
+#[cfg(windows)]
+fn ensure_folder_path(
+    state: State<AppState>,
+    base_folder_id: String,
+    path: String,
+) -> Result<String, String> {
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
+
+    let device = connection.as_ref()
+        .ok_or_else(|| "No device connected".to_string())?;
+
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
+
+    device.ensure_folder_path(&base_folder_id, &path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+fn ensure_folder_path(_state: State<AppState>, _base_folder_id: String, _path: String) -> Result<String, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
+#[tauri::command]
+#[cfg(windows)]
+fn get_or_create_music_folder(state: State<AppState>) -> Result<String, String> {
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
+
+    let device = connection.as_ref()
+        .ok_or_else(|| "No device connected".to_string())?;
+
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
+
+    device.get_or_create_music_folder()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+fn get_or_create_music_folder(_state: State<AppState>) -> Result<String, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new()
@@ -348,6 +425,9 @@ pub fn run() {
             get_playlists,
             get_tracks,
             sync_playlist_to_device,
+            create_folder,
+            ensure_folder_path,
+            get_or_create_music_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
