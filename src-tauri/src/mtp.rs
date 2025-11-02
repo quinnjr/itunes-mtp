@@ -2,7 +2,7 @@
 use std::{
     error::Error,
     fmt,
-    io::Write,
+    io::{Read, Write},
     result::Result,
     sync::{Arc, Mutex},
 };
@@ -381,13 +381,13 @@ impl MtpDevice {
     /// Returns the folder's object ID if found, None otherwise
     pub fn folder_exists(&self, parent_id: &str, folder_name: &str) -> Result<Option<String>, Box<dyn Error>> {
         let files = self.list_files(Some(parent_id))?;
-        
+
         for file in files {
             if file.is_folder && file.name == folder_name {
                 return Ok(Some(file.object_id));
             }
         }
-        
+
         Ok(None)
     }
 
@@ -427,7 +427,7 @@ impl MtpDevice {
 
             let object_id_str = object_id.to_string()
                 .unwrap_or_else(|_| String::new());
-            
+
             if object_id_str.is_empty() {
                 return Err(Box::new(MtpError::DeviceError("Failed to get created folder ID".to_string())));
             }
@@ -467,6 +467,151 @@ impl MtpDevice {
             let device_root_str = WPD_DEVICE_OBJECT_ID.to_string().unwrap_or_default();
             self.ensure_folder_path(&device_root_str, "Music")
         }
+    }
+
+    /// Upload a file from local filesystem to the MTP device
+    /// 
+    /// # Arguments
+    /// * `local_path` - Path to the local file to upload
+    /// * `parent_folder_id` - Object ID of the parent folder on the device
+    /// * `file_name` - Name to use for the file on the device
+    /// 
+    /// # Returns
+    /// Object ID of the uploaded file on the device
+    pub fn upload_file(&self, local_path: &str, parent_folder_id: &str, file_name: &str) -> Result<String, Box<dyn Error>> {
+        unsafe {
+            // Open the local file
+            let mut local_file = std::fs::File::open(local_path)
+                .map_err(|e| MtpError::TransferError(format!("Failed to open local file: {}", e)))?;
+
+            // Get file size
+            let file_size = local_file.metadata()
+                .map_err(|e| MtpError::TransferError(format!("Failed to get file metadata: {}", e)))?
+                .len();
+
+            // Create property values for the new file
+            let properties: IPortableDeviceValues = CoCreateInstance(
+                &PortableDeviceValues as *const GUID,
+                None,
+                CLSCTX_INPROC_SERVER,
+            ).map_err(|e| MtpError::ComError(format!("Failed to create property values: {}", e)))?;
+
+            // Set parent folder ID
+            let parent_id_wide: Vec<u16> = parent_folder_id.encode_utf16().chain(std::iter::once(0)).collect();
+            let parent_id_pcwstr = PCWSTR::from_raw(parent_id_wide.as_ptr());
+            properties.SetStringValue(&WPD_OBJECT_PARENT_ID, parent_id_pcwstr)?;
+
+            // Set file name
+            let file_name_hstring = HSTRING::from(file_name);
+            properties.SetStringValue(&WPD_OBJECT_NAME, &file_name_hstring)?;
+
+            // Set file size
+            properties.SetUnsignedLargeIntegerValue(&WPD_OBJECT_SIZE, file_size)?;
+
+            // Determine content type based on file extension
+            let content_type = determine_content_type(file_name);
+            properties.SetGuidValue(&WPD_OBJECT_CONTENT_TYPE, &content_type)?;
+
+            // Create the object and get a write stream
+            let mut optimal_buffer_size: u32 = 0;
+            let mut data_stream: Option<IStream> = None;
+            let mut object_id = PWSTR::null();
+
+            self.content.CreateObjectWithPropertiesAndData(
+                &properties,
+                &mut data_stream,
+                &mut optimal_buffer_size,
+                &mut object_id,
+            ).map_err(|e| MtpError::TransferError(format!("Failed to create object with data stream: {}", e)))?;
+
+            let stream = data_stream.ok_or_else(|| MtpError::TransferError("No data stream returned".to_string()))?;
+
+            // Determine buffer size (prefer optimal, fallback to 64KB)
+            let buffer_size = if optimal_buffer_size > 0 {
+                optimal_buffer_size as usize
+            } else {
+                64 * 1024
+            };
+
+            let mut buffer = vec![0u8; buffer_size];
+            let mut total_written: u64 = 0;
+
+            // Read from local file and write to device stream in chunks
+            loop {
+                let bytes_read = local_file.read(&mut buffer)
+                    .map_err(|e| MtpError::TransferError(format!("Failed to read from local file: {}", e)))?;
+
+                if bytes_read == 0 {
+                    break; // EOF
+                }
+
+                // Write chunk to device stream
+                let mut bytes_written: u32 = 0;
+                let write_result = stream.Write(
+                    buffer[..bytes_read].as_ptr() as *const core::ffi::c_void,
+                    bytes_read as u32,
+                    Some(&mut bytes_written),
+                );
+                
+                if write_result.is_err() {
+                    return Err(Box::new(MtpError::TransferError(
+                        format!("Failed to write to device stream: {:?}", write_result)
+                    )));
+                }
+
+                total_written += bytes_written as u64;
+
+                // If we didn't write all bytes, that's an error
+                if bytes_written as usize != bytes_read {
+                    return Err(Box::new(MtpError::TransferError(
+                        format!("Partial write: wrote {}/{} bytes", bytes_written, bytes_read)
+                    )));
+                }
+            }
+
+            // Commit the stream to finalize the upload
+            stream.Commit(STGC_DEFAULT)
+                .map_err(|e| MtpError::TransferError(format!("Failed to commit stream: {}", e)))?;
+
+            // Get the created object ID
+            let object_id_str = object_id.to_string()
+                .unwrap_or_else(|_| String::new());
+            
+            if object_id_str.is_empty() {
+                // Fallback: enumerate parent folder to find the file by name and size
+                let files = self.list_files(Some(parent_folder_id))?;
+                for file in files {
+                    if file.name == file_name && !file.is_folder && file.size == file_size {
+                        return Ok(file.object_id);
+                    }
+                }
+                
+                return Err(Box::new(MtpError::TransferError(
+                    "File uploaded but could not retrieve object ID".to_string()
+                )));
+            }
+
+            Ok(object_id_str)
+        }
+    }
+}
+
+/// Determine content type GUID based on file extension
+fn determine_content_type(file_name: &str) -> GUID {
+    let lower = file_name.to_lowercase();
+    
+    if lower.ends_with(".mp3") || lower.ends_with(".m4a") || lower.ends_with(".m4p") || 
+       lower.ends_with(".aac") || lower.ends_with(".wma") || lower.ends_with(".wav") ||
+       lower.ends_with(".flac") || lower.ends_with(".ogg") {
+        WPD_CONTENT_TYPE_AUDIO
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") || lower.ends_with(".png") ||
+              lower.ends_with(".gif") || lower.ends_with(".bmp") {
+        WPD_CONTENT_TYPE_IMAGE
+    } else if lower.ends_with(".mp4") || lower.ends_with(".avi") || lower.ends_with(".mov") ||
+              lower.ends_with(".wmv") {
+        WPD_CONTENT_TYPE_VIDEO
+    } else {
+        WPD_CONTENT_TYPE_UNSPECIFIED
     }
 }
 
@@ -579,6 +724,12 @@ impl ThreadSafeMtpDevice {
         let device = self.device.lock()
             .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
         device.get_or_create_music_folder()
+    }
+
+    pub fn upload_file(&self, local_path: &str, parent_folder_id: &str, file_name: &str) -> Result<String, Box<dyn Error>> {
+        let device = self.device.lock()
+            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        device.upload_file(local_path, parent_folder_id, file_name)
     }
 
     pub fn get_device_id(&self) -> &str {
@@ -1472,7 +1623,7 @@ mod tests {
     #[test]
     fn test_file_operations_parameter_validation_comprehensive() {
         // Comprehensive parameter validation tests for file operations
-        
+
         // Valid folder IDs
         let valid_folder_ids = vec![
             None,
@@ -1557,7 +1708,7 @@ mod tests {
                 }
                 Some(id) => {
                     // Folder ID format is valid (actual existence checked by device)
-                    assert!(!id.is_empty() || id == "", 
+                    assert!(!id.is_empty() || id == "",
                         "{}: Folder ID format valid", description);
                 }
             }
@@ -1715,7 +1866,7 @@ mod tests {
     fn test_thread_safe_device_is_connected_logic() {
         // Test the is_connected() logic
         // is_connected() checks if device.try_lock() succeeds
-        
+
         // Simulate connection states using Option<bool>
         // In real implementation: None = no connection, Some(true) = connected, Some(false) = connection lost
         let no_connection: Option<bool> = None;
@@ -1825,7 +1976,7 @@ mod tests {
 
         // Simulate concurrent file info requests
         let file_ids = vec!["obj-1", "obj-2", "obj-3", "obj-4", "obj-5"];
-        
+
         let handles: Vec<_> = file_ids.iter().map(|id| {
             let id = *id;
             thread::spawn(move || {
@@ -1883,7 +2034,7 @@ mod tests {
         for (path, should_be_valid) in path_patterns {
             let has_drive_letter = path.contains(":\\") || path.starts_with("\\\\");
             let is_non_empty = !path.is_empty();
-            
+
             if should_be_valid {
                 assert!(has_drive_letter && is_non_empty,
                     "Valid path '{}' should have drive letter and be non-empty", path);
@@ -1920,7 +2071,7 @@ mod tests {
     fn test_thread_safe_wrapper_behavior() {
         // Test behavior of thread-safe wrapper patterns
         // ThreadSafeMtpDevice uses Arc<Mutex<MtpDevice>>
-        
+
         use std::sync::Mutex;
 
         // Simulate the wrapper structure
@@ -1950,7 +2101,7 @@ mod tests {
     fn test_folder_exists_logic() {
         // Test folder existence checking logic without actual device
         // folder_exists checks if a folder with given name exists in parent
-        
+
         // Simulate folder list response
         let mock_files = vec![
             FileInfo {
@@ -1986,7 +2137,7 @@ mod tests {
         // Test folder path creation logic
         let path = "Music/Artist Name/Album Name";
         let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
-        
+
         assert_eq!(parts.len(), 3);
         assert_eq!(parts[0], "Music");
         assert_eq!(parts[1], "Artist Name");
@@ -2010,14 +2161,14 @@ mod tests {
         // - WPD_OBJECT_PARENT_ID: parent folder object ID
         // - WPD_OBJECT_NAME: folder name
         // - WPD_OBJECT_CONTENT_TYPE: WPD_CONTENT_TYPE_FOLDER
-        
+
         let parent_id = "parent-123";
         let folder_name = "TestFolder";
-        
+
         // Verify required values are non-empty
         assert!(!parent_id.is_empty());
         assert!(!folder_name.is_empty());
-        
+
         // Folder name should be valid (not empty, no invalid chars)
         assert!(!folder_name.trim().is_empty());
     }
@@ -2026,17 +2177,17 @@ mod tests {
     fn test_folder_hierarchy_creation() {
         // Test creating nested folder hierarchy
         // Path: Music/Artist/Album
-        
+
         let mut current_id = "root".to_string();
         let path_parts = vec!["Music", "Artist", "Album"];
-        
+
         // Simulate folder creation sequence
         for part in path_parts {
             // Each part should update current_id
             current_id = format!("folder-{}", part);
             assert!(!current_id.is_empty());
         }
-        
+
         // Final folder ID should be set
         assert_eq!(current_id, "folder-Album");
     }
@@ -2046,7 +2197,7 @@ mod tests {
         // Test Music folder creation logic
         let _device_root = "DEVICE_ROOT"; // Placeholder for device root ID
         let music_path = "Music";
-        
+
         // Music folder should be created at root level
         assert_eq!(music_path, "Music");
         assert!(!music_path.is_empty());
@@ -2065,7 +2216,7 @@ mod tests {
 
         for (path, expected_parts) in test_cases {
             let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
-            assert_eq!(parts.len(), expected_parts, 
+            assert_eq!(parts.len(), expected_parts,
                 "Path '{}' should have {} parts, got {}", path, expected_parts, parts.len());
         }
     }

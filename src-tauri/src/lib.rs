@@ -405,6 +405,34 @@ fn get_or_create_music_folder(_state: State<AppState>) -> Result<String, String>
     Err("MTP device support is only available on Windows".to_string())
 }
 
+#[tauri::command]
+#[cfg(windows)]
+fn upload_file(
+    state: State<AppState>,
+    local_path: String,
+    parent_folder_id: String,
+    file_name: String,
+) -> Result<String, String> {
+    let connection = state.active_device_connection.lock()
+        .map_err(|e| format!("Failed to lock connection state: {}", e))?;
+
+    let device = connection.as_ref()
+        .ok_or_else(|| "No device connected".to_string())?;
+
+    if !device.is_connected() {
+        return Err("Device connection lost".to_string());
+    }
+
+    device.upload_file(&local_path, &parent_folder_id, &file_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+fn upload_file(_state: State<AppState>, _local_path: String, _parent_folder_id: String, _file_name: String) -> Result<String, String> {
+    Err("MTP device support is only available on Windows".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new()
@@ -428,6 +456,7 @@ pub fn run() {
             create_folder,
             ensure_folder_path,
             get_or_create_music_folder,
+            upload_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
