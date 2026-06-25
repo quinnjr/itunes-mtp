@@ -396,7 +396,7 @@ fn sync_playlist_to_device(
             error_report.duration_ms = start_time.elapsed().as_millis() as u64;
             error_report.finalize();
             return Ok(serde_json::to_string(&error_report)
-                .unwrap_or_else(|_| format!("Error creating sync report")));
+                .unwrap_or_else(|_| "Error creating sync report".to_string()));
         }
     };
 
@@ -434,11 +434,7 @@ fn sync_playlist_to_device(
 
             // Determine folder path on device (Artist/Album structure)
             let artist_name = track.artist.as_str();
-            let album_name = track
-                .album
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or("Unknown Album");
+            let album_name = track.album.as_deref().unwrap_or("Unknown Album");
             let folder_path = format!("{}/{}", artist_name, album_name);
 
             // Ensure folder structure exists on device (with retry)
@@ -780,6 +776,18 @@ pub fn run() {
 #[cfg(test)]
 #[cfg(windows)]
 mod tests {
+    // These Windows-only tests assert on constants and boundary conditions that
+    // trip several style lints; allow them so `clippy -D warnings` passes on the
+    // Windows CI runner (this module does not compile on the Linux dev machines).
+    #![allow(
+        clippy::assertions_on_constants,
+        clippy::bool_assert_comparison,
+        clippy::absurd_extreme_comparisons,
+        clippy::len_zero,
+        clippy::nonminimal_bool
+    )]
+    #![allow(unused_comparisons)]
+
     use super::*;
     use mtp::MtpError;
 

@@ -1,6 +1,7 @@
-// These error types/variants are constructed only by the Windows-only sync
-// command, so they read as dead code when building for other targets.
-#![cfg_attr(not(windows), allow(dead_code))]
+// These error types/variants are part of the sync error taxonomy; several are
+// only constructed by the Windows-only sync command (or kept for completeness),
+// so allow dead code for the whole module on every target.
+#![allow(dead_code)]
 
 use quick_xml::Error as XmlError;
 use serde::Serialize;

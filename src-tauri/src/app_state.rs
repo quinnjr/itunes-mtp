@@ -265,10 +265,8 @@ impl AppState {
                                         playlist.id = text_str;
                                     }
                                 }
-                                "Track ID" => {
-                                    if in_playlist_items {
-                                        playlist.tracks.push(text_str);
-                                    }
+                                "Track ID" if in_playlist_items => {
+                                    playlist.tracks.push(text_str);
                                 }
                                 _ => {}
                             }
@@ -329,6 +327,7 @@ impl AppState {
     }
 
     #[cfg(windows)]
+    #[allow(dead_code)] // Placeholder for the Windows MTP sync path; not yet wired up.
     pub fn sync_to_mtp(&self, _device: &MtpDevice) -> Result<(), SyncError> {
         unimplemented!();
     }
