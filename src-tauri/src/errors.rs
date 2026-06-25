@@ -1,6 +1,10 @@
-use std::{io, string::FromUtf8Error};
+// These error types/variants are constructed only by the Windows-only sync
+// command, so they read as dead code when building for other targets.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use quick_xml::Error as XmlError;
 use serde::Serialize;
+use std::{io, string::FromUtf8Error};
 
 #[derive(Debug, Clone, Serialize)]
 pub enum SyncError {
@@ -20,13 +24,13 @@ pub enum SyncError {
 /// Error category for error reporting
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub enum ErrorCategory {
-    FileSystem,      // File I/O errors (missing files, permission issues)
-    Network,         // Network/connection errors
-    Device,          // Device-specific errors (disconnected, incompatible)
-    Corruption,      // File corruption or invalid format
-    Timeout,         // Operation timeout
-    Configuration,   // Configuration/parameter errors
-    Unknown,         // Unclassified errors
+    FileSystem,    // File I/O errors (missing files, permission issues)
+    Network,       // Network/connection errors
+    Device,        // Device-specific errors (disconnected, incompatible)
+    Corruption,    // File corruption or invalid format
+    Timeout,       // Operation timeout
+    Configuration, // Configuration/parameter errors
+    Unknown,       // Unclassified errors
 }
 
 impl SyncError {

@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use quick_xml::{events::Event, Reader, name::QName};
+use quick_xml::{events::Event, name::QName, Reader};
 
 #[cfg(windows)]
 use crate::mtp::MtpDevice;
@@ -35,7 +35,7 @@ pub struct Track {
     pub skip_date: Option<String>,
     pub comments: Option<String>,
     pub kind: Option<String>, // File type (e.g., "MPEG audio file")
-    pub size: Option<u64>, // File size in bytes
+    pub size: Option<u64>,    // File size in bytes
     pub location: String,
 }
 
@@ -88,13 +88,18 @@ pub fn decode_itunes_url(url: &str) -> String {
 
     // Check if this is a network path (file://server/share/...)
     // Network paths: don't have localhost, don't have drive letter (C:/), have at least one /
-    let is_network_path = !is_localhost &&
-                          !path.chars().next().map(|c| c.is_ascii_alphabetic() && path.chars().nth(1) == Some(':')).unwrap_or(false) &&
-                          path.contains('/');
+    let is_network_path = !is_localhost
+        && !path
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_alphabetic() && path.chars().nth(1) == Some(':'))
+            .unwrap_or(false)
+        && path.contains('/');
 
     if is_network_path {
         // Handle network paths (file://server/share/path)
-        let decoded = urlencoding::decode(&path).unwrap_or(std::borrow::Cow::Borrowed(path.as_str()));
+        let decoded =
+            urlencoding::decode(&path).unwrap_or(std::borrow::Cow::Borrowed(path.as_str()));
         #[cfg(target_os = "windows")]
         {
             let result = decoded.replace('/', "\\");
@@ -112,7 +117,8 @@ pub fn decode_itunes_url(url: &str) -> String {
     } else {
         // Local file path
         // Decode URL encoding (e.g., %20 -> space, %28 -> (, %29 -> ))
-        let decoded = urlencoding::decode(&path).unwrap_or(std::borrow::Cow::Borrowed(path.as_str()));
+        let decoded =
+            urlencoding::decode(&path).unwrap_or(std::borrow::Cow::Borrowed(path.as_str()));
 
         // Convert forward slashes to backslashes on Windows
         #[cfg(target_os = "windows")]
@@ -174,10 +180,11 @@ impl AppState {
                                 current_track = Some(Track::default());
                             }
                             // Check if we're starting a new playlist (playlist dict is one level deeper than array)
-                            else if in_playlists_array && dict_depth == playlist_dict_depth + 1 {
-                                if current_playlist.is_none() {
-                                    current_playlist = Some(Playlist::default());
-                                }
+                            else if in_playlists_array
+                                && dict_depth == playlist_dict_depth + 1
+                                && current_playlist.is_none()
+                            {
+                                current_playlist = Some(Playlist::default());
                             }
                         }
                         QName(b"array") => {
@@ -189,7 +196,9 @@ impl AppState {
                                 current_key = None; // Clear the key after using it
                             }
                             // Check if this is the playlist items array
-                            else if in_playlists_array && current_key.as_deref() == Some("Playlist Items") {
+                            else if in_playlists_array
+                                && current_key.as_deref() == Some("Playlist Items")
+                            {
                                 in_playlist_items = true;
                                 current_key = None; // Clear the key after using it
                             }
@@ -235,7 +244,9 @@ impl AppState {
                                 "BPM" => track.bpm = text_str.parse().ok(),
                                 "Date Added" => track.date_added = Some(text_str.clone()),
                                 "Date Modified" => track.date_modified = Some(text_str.clone()),
-                                "Play Date UTC" | "Play Date" => track.last_played = Some(text_str.clone()),
+                                "Play Date UTC" | "Play Date" => {
+                                    track.last_played = Some(text_str.clone())
+                                }
                                 "Skip Date" => track.skip_date = Some(text_str.clone()),
                                 "Comments" => track.comments = Some(text_str),
                                 "Kind" => track.kind = Some(text_str),
@@ -322,22 +333,23 @@ impl AppState {
         unimplemented!();
     }
 
-    pub fn generate_mtp_playlist_content(
-        &self,
-        playlist: &Playlist,
-    ) -> Result<String, SyncError> {
+    #[allow(dead_code)] // Exercised by unit tests; intended for the Windows MTP sync path.
+    pub fn generate_mtp_playlist_content(&self, playlist: &Playlist) -> Result<String, SyncError> {
         let mut content = String::from("#EXTM3U\n");
 
         if let Some(library) = &self.library {
             for track_id in &playlist.tracks {
                 if let Some(track) = library.tracks.get(track_id) {
-                    let mtp_path = format!("/Music/{}/{}/{}",
+                    let mtp_path = format!(
+                        "/Music/{}/{}/{}",
                         track.artist,
                         track.name,
                         Path::new(&track.location)
                             .file_name()
                             .and_then(|n| n.to_str())
-                            .ok_or_else(|| SyncError::ParseError("Invalid filename in playlist".to_string()))?
+                            .ok_or_else(|| SyncError::ParseError(
+                                "Invalid filename in playlist".to_string()
+                            ))?
                     );
 
                     content.push_str(&format!("#EXTINF:-1,{} - {}\n", track.artist, track.name));
@@ -459,10 +471,14 @@ mod tests {
     #[test]
     fn test_parse_tracks() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(SAMPLE_ITUNES_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(SAMPLE_ITUNES_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         // Check we parsed 2 tracks
         assert_eq!(library.tracks.len(), 2, "Should parse 2 tracks");
@@ -503,16 +519,22 @@ mod tests {
     #[test]
     fn test_parse_playlists() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(SAMPLE_ITUNES_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(SAMPLE_ITUNES_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         // Should parse 3 playlists (excluding Library master playlist)
         assert_eq!(library.playlists.len(), 3, "Should parse 3 playlists");
 
         // Check "My Favorites" playlist
-        let favorites = library.playlists.iter()
+        let favorites = library
+            .playlists
+            .iter()
             .find(|p| p.name == "My Favorites")
             .expect("Favorites playlist should exist");
         assert_eq!(favorites.id, "101");
@@ -522,7 +544,9 @@ mod tests {
         assert!(!favorites.is_folder);
 
         // Check "Rock Music" playlist
-        let rock = library.playlists.iter()
+        let rock = library
+            .playlists
+            .iter()
             .find(|p| p.name == "Rock Music")
             .expect("Rock playlist should exist");
         assert_eq!(rock.id, "102");
@@ -530,7 +554,9 @@ mod tests {
         assert_eq!(rock.tracks[0], "1");
 
         // Check folder
-        let folder = library.playlists.iter()
+        let folder = library
+            .playlists
+            .iter()
             .find(|p| p.name == "My Folder")
             .expect("Folder should exist");
         assert_eq!(folder.id, "103");
@@ -562,7 +588,9 @@ mod tests {
 
         // Test URL with special characters (parentheses, spaces)
         assert_eq!(
-            decode_itunes_url("file://localhost/C:/Music/Artist%20Name/Album%20%28Deluxe%29/01%20Track.mp3"),
+            decode_itunes_url(
+                "file://localhost/C:/Music/Artist%20Name/Album%20%28Deluxe%29/01%20Track.mp3"
+            ),
             if cfg!(target_os = "windows") {
                 "C:\\Music\\Artist Name\\Album (Deluxe)\\01 Track.mp3"
             } else {
@@ -601,37 +629,50 @@ mod tests {
         );
 
         // Test relative path (should return as-is)
-        assert_eq!(
-            decode_itunes_url("Music/Song.mp3"),
-            "Music/Song.mp3"
-        );
+        assert_eq!(decode_itunes_url("Music/Song.mp3"), "Music/Song.mp3");
 
         // Test empty string
-        assert_eq!(
-            decode_itunes_url(""),
-            ""
-        );
+        assert_eq!(decode_itunes_url(""), "");
     }
 
     #[test]
     fn test_generate_mtp_playlist_content() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(SAMPLE_ITUNES_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(SAMPLE_ITUNES_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
-        let favorites = library.playlists.iter()
+        let favorites = library
+            .playlists
+            .iter()
             .find(|p| p.name == "My Favorites")
             .expect("Favorites playlist should exist");
 
-        let content = state.generate_mtp_playlist_content(favorites)
+        let content = state
+            .generate_mtp_playlist_content(favorites)
             .expect("Failed to generate playlist content");
 
-        assert!(content.starts_with("#EXTM3U\n"), "Should start with M3U header");
-        assert!(content.contains("Test Artist - Test Song 1"), "Should contain track 1 info");
-        assert!(content.contains("Another Artist - Test Song 2"), "Should contain track 2 info");
-        assert!(content.contains("/Music/Test Artist/Test Song 1/"), "Should contain track 1 path");
+        assert!(
+            content.starts_with("#EXTM3U\n"),
+            "Should start with M3U header"
+        );
+        assert!(
+            content.contains("Test Artist - Test Song 1"),
+            "Should contain track 1 info"
+        );
+        assert!(
+            content.contains("Another Artist - Test Song 2"),
+            "Should contain track 2 info"
+        );
+        assert!(
+            content.contains("/Music/Test Artist/Test Song 1/"),
+            "Should contain track 1 path"
+        );
     }
 
     #[test]
@@ -651,10 +692,14 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(EMPTY_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(EMPTY_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         assert_eq!(library.tracks.len(), 0, "Should have no tracks");
         assert_eq!(library.playlists.len(), 0, "Should have no playlists");
@@ -684,10 +729,14 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(MINIMAL_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(MINIMAL_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         assert_eq!(library.tracks.len(), 1, "Should parse 1 track");
 
@@ -718,7 +767,9 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(MALFORMED_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(MALFORMED_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
         let result = state.parse_library(temp_file.path());
@@ -758,10 +809,14 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(NO_TRACK_ID_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(NO_TRACK_ID_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         // Track should still be parsed, ID should be derived from dict key
         if let Some(track) = library.tracks.get("1") {
@@ -794,10 +849,14 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(EMPTY_FIELDS_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(EMPTY_FIELDS_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         let track = library.tracks.get("1").expect("Track should exist");
         assert_eq!(track.name, "");
@@ -828,10 +887,14 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(SPECIAL_CHARS_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(SPECIAL_CHARS_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         let track = library.tracks.get("1").expect("Track should exist");
         assert!(track.name.contains("&") || track.name.contains("Song"));
@@ -873,12 +936,18 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(DUPLICATE_TRACKS_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(DUPLICATE_TRACKS_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
-        let playlist = library.playlists.iter()
+        let playlist = library
+            .playlists
+            .iter()
             .find(|p| p.name == "Duplicates")
             .expect("Playlist should exist");
 
@@ -921,12 +990,18 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(INVALID_TRACK_ID_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(INVALID_TRACK_ID_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
-        let playlist = library.playlists.iter()
+        let playlist = library
+            .playlists
+            .iter()
             .find(|p| p.name == "With Invalid")
             .expect("Playlist should exist");
 
@@ -959,12 +1034,18 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(NO_TRACKS_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(NO_TRACKS_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
-        let playlist = library.playlists.iter()
+        let playlist = library
+            .playlists
+            .iter()
             .find(|p| p.name == "Empty Playlist")
             .expect("Playlist should exist");
 
@@ -992,12 +1073,18 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(NO_ITEMS_KEY_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(NO_ITEMS_KEY_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
-        let playlist = library.playlists.iter()
+        let playlist = library
+            .playlists
+            .iter()
             .find(|p| p.name == "No Items Key")
             .expect("Playlist should exist");
 
@@ -1031,10 +1118,14 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(ZERO_VALUES_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(ZERO_VALUES_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         let track = library.tracks.get("1").expect("Track should exist");
         // Zero values should be parsed
@@ -1066,10 +1157,14 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(LARGE_ID_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(LARGE_ID_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         let track = library.tracks.get("999999").expect("Track should exist");
         assert_eq!(track.id, "999999");
@@ -1093,7 +1188,8 @@ mod tests {
         let long_artist = "B".repeat(1000);
         let long_album = "C".repeat(1000);
 
-        let xml = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -1110,13 +1206,19 @@ mod tests {
     </dict>
 </dict>
 </plist>
-"#, long_name, long_artist, long_album);
+"#,
+            long_name, long_artist, long_album
+        );
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(xml.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(xml.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         let track = library.tracks.get("1").expect("Track should exist");
         assert_eq!(track.name.len(), 1000);
@@ -1160,15 +1262,19 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(ALL_ITEMS_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(ALL_ITEMS_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
-        let library = state.parse_library(temp_file.path()).expect("Failed to parse library");
+        let library = state
+            .parse_library(temp_file.path())
+            .expect("Failed to parse library");
 
         // "All Items" playlists (master/library) should be excluded from regular playlists
         // The "All Items Playlist" should either be included or excluded based on implementation
-        // This test verifies the behavior
-        assert!(library.playlists.len() >= 0);
+        // This test verifies parsing succeeds and yields a (possibly empty) playlist list.
+        let _ = library.playlists.len();
     }
 
     #[test]
@@ -1181,7 +1287,9 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(INVALID_STRUCTURE_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(INVALID_STRUCTURE_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
         let result = state.parse_library(temp_file.path());
@@ -1235,7 +1343,9 @@ mod tests {
 "#;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(NESTED_XML.as_bytes()).expect("Failed to write temp file");
+        temp_file
+            .write_all(NESTED_XML.as_bytes())
+            .expect("Failed to write temp file");
 
         let mut state = AppState::default();
         let result = state.parse_library(temp_file.path());
@@ -1245,10 +1355,9 @@ mod tests {
         match result {
             Ok(library) => {
                 // Should parse both folder and playlist
-                assert!(library.playlists.len() >= 1);
+                assert!(!library.playlists.is_empty());
 
-                let folder = library.playlists.iter()
-                    .find(|p| p.name == "Folder");
+                let folder = library.playlists.iter().find(|p| p.name == "Folder");
                 if let Some(folder) = folder {
                     assert!(folder.is_folder);
                 }

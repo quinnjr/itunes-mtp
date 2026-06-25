@@ -1,22 +1,31 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[cfg(windows)]
-mod mtp;
 mod app_state;
 mod errors;
+#[cfg(windows)]
+mod mtp;
 mod retry;
 mod sync_report;
 
 use std::sync::Mutex;
-use std::path::Path;
+// Path/fs and the sync/retry types are only referenced by the Windows-only
+// `sync_playlist_to_device` command; gate their imports to avoid unused-import
+// warnings on non-Windows targets.
+#[cfg(windows)]
 use std::fs;
+#[cfg(windows)]
+use std::path::Path;
 use tauri::State;
 
 #[cfg(windows)]
-use mtp::{DeviceInfo, FileInfo, StorageInfo, ThreadSafeMtpManager, ThreadSafeMtpDevice};
 use errors::SyncError;
-use retry::{RetryConfig, retry_with_backoff};
-use sync_report::{SyncReport, OperationError};
+#[cfg(windows)]
+use mtp::{DeviceInfo, FileInfo, StorageInfo, ThreadSafeMtpDevice, ThreadSafeMtpManager};
+#[cfg(windows)]
+use retry::{retry_with_backoff, RetryConfig};
+#[cfg(windows)]
+use sync_report::{OperationError, SyncReport};
 #[cfg(not(windows))]
+#[allow(dead_code)] // Placeholder types so the crate builds on non-Windows; the real impl lives in mtp.rs (Windows only).
 mod mtp {
     use serde::Serialize;
     #[derive(Debug, Clone, Serialize)]
@@ -46,9 +55,9 @@ mod mtp {
         }
     }
 }
+use app_state::{AppState as LibraryState, ITunesLibrary, Playlist, Track};
 #[cfg(not(windows))]
-use mtp::{DeviceInfo, FileInfo, StorageInfo};
-use app_state::{AppState as LibraryState, ITunesLibrary, Track, Playlist};
+use mtp::{FileInfo, StorageInfo};
 
 // Application state
 struct AppState {
@@ -77,9 +86,7 @@ impl AppState {
 #[tauri::command]
 #[cfg(windows)]
 fn get_devices(state: State<AppState>) -> Result<Vec<DeviceInfo>, String> {
-    state.mtp_manager
-        .get_devices()
-        .map_err(|e| e.to_string())
+    state.mtp_manager.get_devices().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -92,7 +99,9 @@ fn get_devices(_state: State<AppState>) -> Result<Vec<()>, String> {
 #[cfg(windows)]
 fn connect_device(state: State<AppState>, device_id: String) -> Result<String, String> {
     // Disconnect any existing device first
-    let mut connection = state.active_device_connection.lock()
+    let mut connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
     if connection.is_some() {
         *connection = None;
@@ -104,9 +113,13 @@ fn connect_device(state: State<AppState>, device_id: String) -> Result<String, S
         .map_err(|e| format!("Failed to connect to device: {}", e))?;
 
     // Store the active device connection and ID
-    let mut connection = state.active_device_connection.lock()
+    let mut connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
-    let mut active = state.active_device.lock()
+    let mut active = state
+        .active_device
+        .lock()
         .map_err(|e| format!("Failed to lock state: {}", e))?;
 
     *connection = Some(device.clone());
@@ -125,9 +138,13 @@ fn connect_device(_state: State<AppState>, _device_id: String) -> Result<String,
 #[cfg(windows)]
 fn disconnect_device(state: State<AppState>) -> Result<String, String> {
     // Clear the connection (device will be closed when dropped)
-    let mut connection = state.active_device_connection.lock()
+    let mut connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
-    let mut active = state.active_device.lock()
+    let mut active = state
+        .active_device
+        .lock()
         .map_err(|e| format!("Failed to lock state: {}", e))?;
 
     *connection = None;
@@ -148,10 +165,13 @@ fn list_device_files(
     state: State<AppState>,
     folder_id: Option<String>,
 ) -> Result<Vec<FileInfo>, String> {
-    let connection = state.active_device_connection.lock()
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     // Check if connection is still valid
@@ -159,26 +179,30 @@ fn list_device_files(
         return Err("Device connection lost".to_string());
     }
 
-    device.list_files(folder_id.as_deref())
+    device
+        .list_files(folder_id.as_deref())
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[cfg(not(windows))]
-fn list_device_files(_state: State<AppState>, _folder_id: Option<String>) -> Result<Vec<FileInfo>, String> {
+fn list_device_files(
+    _state: State<AppState>,
+    _folder_id: Option<String>,
+) -> Result<Vec<FileInfo>, String> {
     Err("MTP device support is only available on Windows".to_string())
 }
 
 #[tauri::command]
 #[cfg(windows)]
-fn get_file_info(
-    state: State<AppState>,
-    object_id: String,
-) -> Result<FileInfo, String> {
-    let connection = state.active_device_connection.lock()
+fn get_file_info(state: State<AppState>, object_id: String) -> Result<FileInfo, String> {
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     // Check if connection is still valid
@@ -186,8 +210,7 @@ fn get_file_info(
         return Err("Device connection lost".to_string());
     }
 
-    device.get_file_info(&object_id)
-        .map_err(|e| e.to_string())
+    device.get_file_info(&object_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -203,10 +226,13 @@ fn transfer_file(
     object_id: String,
     dest_path: String,
 ) -> Result<String, String> {
-    let connection = state.active_device_connection.lock()
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     // Check if connection is still valid
@@ -214,7 +240,8 @@ fn transfer_file(
         return Err("Device connection lost".to_string());
     }
 
-    device.transfer_file(&object_id, &dest_path)
+    device
+        .transfer_file(&object_id, &dest_path)
         .map_err(|e| e.to_string())?;
 
     Ok(format!("File transferred successfully to: {}", dest_path))
@@ -222,20 +249,29 @@ fn transfer_file(
 
 #[tauri::command]
 #[cfg(not(windows))]
-fn transfer_file(_state: State<AppState>, _object_id: String, _dest_path: String) -> Result<String, String> {
+fn transfer_file(
+    _state: State<AppState>,
+    _object_id: String,
+    _dest_path: String,
+) -> Result<String, String> {
     Err("MTP device support is only available on Windows".to_string())
 }
 
 #[tauri::command]
 fn get_active_device(state: State<AppState>) -> Result<Option<String>, String> {
-    let active = state.active_device.lock()
+    let active = state
+        .active_device
+        .lock()
         .map_err(|e| format!("Failed to lock state: {}", e))?;
     Ok(active.clone())
 }
 
 // iTunes Library Commands
 #[tauri::command]
-fn parse_itunes_library(state: State<AppState>, xml_content: String) -> Result<ITunesLibrary, String> {
+fn parse_itunes_library(
+    state: State<AppState>,
+    xml_content: String,
+) -> Result<ITunesLibrary, String> {
     let mut library_state = LibraryState::default();
     let temp_path = std::env::temp_dir().join("temp_library.xml");
 
@@ -244,11 +280,14 @@ fn parse_itunes_library(state: State<AppState>, xml_content: String) -> Result<I
         .map_err(|e| format!("Failed to write temp file: {}", e))?;
 
     // Parse library
-    let library = library_state.parse_library(&temp_path)
+    let library = library_state
+        .parse_library(&temp_path)
         .map_err(|e| format!("Failed to parse library: {}", e))?;
 
     // Store library state
-    let mut lib_state = state.library_state.lock()
+    let mut lib_state = state
+        .library_state
+        .lock()
         .map_err(|e| format!("Failed to lock library state: {}", e))?;
     *lib_state = Some(library_state);
 
@@ -260,7 +299,9 @@ fn parse_itunes_library(state: State<AppState>, xml_content: String) -> Result<I
 
 #[tauri::command]
 fn get_playlists(state: State<AppState>) -> Result<Vec<Playlist>, String> {
-    let lib_state = state.library_state.lock()
+    let lib_state = state
+        .library_state
+        .lock()
         .map_err(|e| format!("Failed to lock library state: {}", e))?;
 
     if let Some(library) = lib_state.as_ref() {
@@ -276,7 +317,9 @@ fn get_playlists(state: State<AppState>) -> Result<Vec<Playlist>, String> {
 
 #[tauri::command]
 fn get_tracks(state: State<AppState>) -> Result<Vec<Track>, String> {
-    let lib_state = state.library_state.lock()
+    let lib_state = state
+        .library_state
+        .lock()
         .map_err(|e| format!("Failed to lock library state: {}", e))?;
 
     if let Some(library) = lib_state.as_ref() {
@@ -299,10 +342,13 @@ fn sync_playlist_to_device(
 ) -> Result<String, String> {
     let start_time = std::time::Instant::now();
 
-    let connection = state.active_device_connection.lock()
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     // Check if connection is still valid
@@ -311,16 +357,23 @@ fn sync_playlist_to_device(
     }
 
     // Get library state
-    let lib_state = state.library_state.lock()
+    let lib_state = state
+        .library_state
+        .lock()
         .map_err(|e| format!("Failed to lock library state: {}", e))?;
 
-    let library = lib_state.as_ref()
+    let library = lib_state
+        .as_ref()
         .ok_or_else(|| "No library loaded".to_string())?;
-    let lib = library.library.as_ref()
+    let lib = library
+        .library
+        .as_ref()
         .ok_or_else(|| "No library loaded".to_string())?;
 
     // Find the playlist
-    let playlist = lib.playlists.iter()
+    let playlist = lib
+        .playlists
+        .iter()
         .find(|p| p.name == playlist_name)
         .ok_or_else(|| format!("Playlist '{}' not found", playlist_name))?;
 
@@ -381,7 +434,11 @@ fn sync_playlist_to_device(
 
             // Determine folder path on device (Artist/Album structure)
             let artist_name = track.artist.as_str();
-            let album_name = track.album.as_ref().map(|s| s.as_str()).unwrap_or("Unknown Album");
+            let album_name = track
+                .album
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("Unknown Album");
             let folder_path = format!("{}/{}", artist_name, album_name);
 
             // Ensure folder structure exists on device (with retry)
@@ -392,8 +449,14 @@ fn sync_playlist_to_device(
 
                 let retry_result = retry_with_backoff(
                     || {
-                        device_clone.ensure_folder_path(&base_id, &folder_path_clone)
-                            .map_err(|e| SyncError::DeviceError(format!("Failed to create folder path: {}", e)))
+                        device_clone
+                            .ensure_folder_path(&base_id, &folder_path_clone)
+                            .map_err(|e| {
+                                SyncError::DeviceError(format!(
+                                    "Failed to create folder path: {}",
+                                    e
+                                ))
+                            })
                     },
                     &retry_config,
                     &format!("ensure_folder_path_{}", folder_path),
@@ -422,11 +485,7 @@ fn sync_playlist_to_device(
             let file_name = match file_name {
                 Ok(name) => name.to_string(),
                 Err(e) => {
-                    report.add_error(
-                        format!("get_filename_{}", track_id),
-                        e,
-                        1,
-                    );
+                    report.add_error(format!("get_filename_{}", track_id), e, 1);
                     report.increment_skipped();
                     continue;
                 }
@@ -440,13 +499,16 @@ fn sync_playlist_to_device(
 
             let retry_result = retry_with_backoff(
                 || {
-                    device_clone.upload_file(&file_path_clone, &folder_id_clone, &file_name_clone)
+                    device_clone
+                        .upload_file(&file_path_clone, &folder_id_clone, &file_name_clone)
                         .map_err(|e| {
                             // Categorize MTP errors
                             let error_str = e.to_string().to_lowercase();
                             if error_str.contains("connection") || error_str.contains("device") {
                                 SyncError::DeviceError(format!("Device error: {}", e))
-                            } else if error_str.contains("timeout") || error_str.contains("timed out") {
+                            } else if error_str.contains("timeout")
+                                || error_str.contains("timed out")
+                            {
                                 SyncError::TimeoutError(format!("Operation timed out: {}", e))
                             } else if error_str.contains("network") {
                                 SyncError::NetworkError(format!("Network error: {}", e))
@@ -483,7 +545,10 @@ fn sync_playlist_to_device(
                         ));
                         report.increment_skipped();
                     } else {
-                        eprintln!("Failed to upload: {} ({}) after {} attempts", track.name, file_name, retry_result.attempts);
+                        eprintln!(
+                            "Failed to upload: {} ({}) after {} attempts",
+                            track.name, file_name, retry_result.attempts
+                        );
                     }
                 }
             }
@@ -511,13 +576,16 @@ fn sync_playlist_to_device(
     );
 
     // Serialize and return report
-    serde_json::to_string(&report)
-        .map_err(|e| format!("Failed to serialize sync report: {}", e))
+    serde_json::to_string(&report).map_err(|e| format!("Failed to serialize sync report: {}", e))
 }
 
 #[tauri::command]
 #[cfg(not(windows))]
-fn sync_playlist_to_device(_state: State<AppState>, _playlist_name: String, _device_folder: Option<String>) -> Result<String, String> {
+fn sync_playlist_to_device(
+    _state: State<AppState>,
+    _playlist_name: String,
+    _device_folder: Option<String>,
+) -> Result<String, String> {
     Err("MTP device support is only available on Windows".to_string())
 }
 
@@ -528,23 +596,31 @@ fn create_folder(
     parent_id: String,
     folder_name: String,
 ) -> Result<String, String> {
-    let connection = state.active_device_connection.lock()
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     if !device.is_connected() {
         return Err("Device connection lost".to_string());
     }
 
-    device.create_folder(&parent_id, &folder_name)
+    device
+        .create_folder(&parent_id, &folder_name)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[cfg(not(windows))]
-fn create_folder(_state: State<AppState>, _parent_id: String, _folder_name: String) -> Result<String, String> {
+fn create_folder(
+    _state: State<AppState>,
+    _parent_id: String,
+    _folder_name: String,
+) -> Result<String, String> {
     Err("MTP device support is only available on Windows".to_string())
 }
 
@@ -555,40 +631,52 @@ fn ensure_folder_path(
     base_folder_id: String,
     path: String,
 ) -> Result<String, String> {
-    let connection = state.active_device_connection.lock()
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     if !device.is_connected() {
         return Err("Device connection lost".to_string());
     }
 
-    device.ensure_folder_path(&base_folder_id, &path)
+    device
+        .ensure_folder_path(&base_folder_id, &path)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[cfg(not(windows))]
-fn ensure_folder_path(_state: State<AppState>, _base_folder_id: String, _path: String) -> Result<String, String> {
+fn ensure_folder_path(
+    _state: State<AppState>,
+    _base_folder_id: String,
+    _path: String,
+) -> Result<String, String> {
     Err("MTP device support is only available on Windows".to_string())
 }
 
 #[tauri::command]
 #[cfg(windows)]
 fn get_or_create_music_folder(state: State<AppState>) -> Result<String, String> {
-    let connection = state.active_device_connection.lock()
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     if !device.is_connected() {
         return Err("Device connection lost".to_string());
     }
 
-    device.get_or_create_music_folder()
+    device
+        .get_or_create_music_folder()
         .map_err(|e| e.to_string())
 }
 
@@ -606,35 +694,41 @@ fn upload_file(
     parent_folder_id: String,
     file_name: String,
 ) -> Result<String, String> {
-    let connection = state.active_device_connection.lock()
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     if !device.is_connected() {
         return Err("Device connection lost".to_string());
     }
 
-    device.upload_file(&local_path, &parent_folder_id, &file_name)
+    device
+        .upload_file(&local_path, &parent_folder_id, &file_name)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[cfg(windows)]
 fn get_device_storage_info(state: State<AppState>) -> Result<StorageInfo, String> {
-    let connection = state.active_device_connection.lock()
+    let connection = state
+        .active_device_connection
+        .lock()
         .map_err(|e| format!("Failed to lock connection state: {}", e))?;
 
-    let device = connection.as_ref()
+    let device = connection
+        .as_ref()
         .ok_or_else(|| "No device connected".to_string())?;
 
     if !device.is_connected() {
         return Err("Device connection lost".to_string());
     }
 
-    device.get_storage_info()
-        .map_err(|e| e.to_string())
+    device.get_storage_info().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -645,14 +739,18 @@ fn get_device_storage_info(_state: State<AppState>) -> Result<StorageInfo, Strin
 
 #[tauri::command]
 #[cfg(not(windows))]
-fn upload_file(_state: State<AppState>, _local_path: String, _parent_folder_id: String, _file_name: String) -> Result<String, String> {
+fn upload_file(
+    _state: State<AppState>,
+    _local_path: String,
+    _parent_folder_id: String,
+    _file_name: String,
+) -> Result<String, String> {
     Err("MTP device support is only available on Windows".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = AppState::new()
-        .expect("Failed to initialize application state");
+    let app_state = AppState::new().expect("Failed to initialize application state");
 
     tauri::Builder::default()
         .manage(app_state)
@@ -690,15 +788,18 @@ mod tests {
     fn test_mtp_manager_creation() {
         // Test that we can create an MTP manager
         let result = ThreadSafeMtpManager::new();
-        assert!(result.is_ok(), "Failed to create MTP manager: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create MTP manager: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     #[ignore] // Ignore in CI to avoid COM initialization crashes
     fn test_get_devices() {
         // Test that we can enumerate devices (may be empty if no devices connected)
-        let manager = ThreadSafeMtpManager::new()
-            .expect("Failed to create MTP manager");
+        let manager = ThreadSafeMtpManager::new().expect("Failed to create MTP manager");
 
         let result = manager.get_devices();
         assert!(result.is_ok(), "Failed to get devices: {:?}", result.err());
@@ -713,15 +814,17 @@ mod tests {
     #[test]
     #[ignore] // Only run when a device is connected
     fn test_device_connection() {
-        let manager = ThreadSafeMtpManager::new()
-            .expect("Failed to create MTP manager");
+        let manager = ThreadSafeMtpManager::new().expect("Failed to create MTP manager");
 
-        let devices = manager.get_devices()
-            .expect("Failed to get devices");
+        let devices = manager.get_devices().expect("Failed to get devices");
 
         if let Some(device_info) = devices.first() {
             let device = ThreadSafeMtpDevice::new(&device_info.device_id);
-            assert!(device.is_ok(), "Failed to connect to device: {:?}", device.err());
+            assert!(
+                device.is_ok(),
+                "Failed to connect to device: {:?}",
+                device.err()
+            );
 
             if let Ok(device) = device {
                 let files = device.list_files(None);
@@ -730,8 +833,10 @@ mod tests {
                 if let Ok(files) = files {
                     println!("Found {} object(s) in device root", files.len());
                     for file in files.iter().take(5) {
-                        println!("  - {} ({} bytes, folder: {})",
-                            file.name, file.size, file.is_folder);
+                        println!(
+                            "  - {} ({} bytes, folder: {})",
+                            file.name, file.size, file.is_folder
+                        );
                     }
                 }
             }
@@ -793,7 +898,10 @@ mod tests {
         // Should return error when no device connected
         // This tests the error path without requiring actual device
         let connection = app_state.active_device_connection.lock().unwrap();
-        assert!(connection.is_none(), "Should return None when no device connected");
+        assert!(
+            connection.is_none(),
+            "Should return None when no device connected"
+        );
 
         // Error message should be "No device connected"
         // This is verified in the actual command implementation
@@ -938,15 +1046,17 @@ mod tests {
         let app_state = Arc::new(AppState::new().expect("Failed to create AppState"));
 
         // Multiple threads checking connection state
-        let handles: Vec<_> = (0..5).map(|_| {
-            let state = Arc::clone(&app_state);
-            thread::spawn(move || {
-                let connection = state.active_device_connection.lock().unwrap();
-                // connection.is_some() works even without actual device
-                let _is_connected = connection.is_some();
-                assert!(true); // Connection state is accessible
+        let handles: Vec<_> = (0..5)
+            .map(|_| {
+                let state = Arc::clone(&app_state);
+                thread::spawn(move || {
+                    let connection = state.active_device_connection.lock().unwrap();
+                    // connection.is_some() works even without actual device
+                    let _is_connected = connection.is_some();
+                    assert!(true); // Connection state is accessible
+                })
             })
-        }).collect();
+            .collect();
 
         for handle in handles {
             handle.join().unwrap();
@@ -960,11 +1070,17 @@ mod tests {
 
         // No device connected should result in error
         let connection = app_state.active_device_connection.lock().unwrap();
-        assert!(connection.is_none(), "Should have no device for error testing");
+        assert!(
+            connection.is_none(),
+            "Should have no device for error testing"
+        );
 
         // Empty object_id should be invalid
         let empty_object_id = String::new();
-        assert!(empty_object_id.is_empty(), "Empty object_id should be invalid");
+        assert!(
+            empty_object_id.is_empty(),
+            "Empty object_id should be invalid"
+        );
     }
 
     #[test]
@@ -1024,28 +1140,23 @@ mod tests {
             "\\\\server\\share\\file.mp3",
         ];
 
-        let invalid_paths = vec![
-            "",
-            "relative/path.mp3",
-            "  ",
-        ];
+        let invalid_paths = vec!["", "relative/path.mp3", "  "];
 
         for path in valid_paths {
             // Valid paths should have drive letter or UNC prefix
             assert!(
-                path.starts_with("C:\\") ||
-                path.starts_with("D:\\") ||
-                path.starts_with("\\\\"),
-                "Path should be absolute: {}", path
+                path.starts_with("C:\\") || path.starts_with("D:\\") || path.starts_with("\\\\"),
+                "Path should be absolute: {}",
+                path
             );
         }
 
         for path in invalid_paths {
             // Invalid paths should be detected
             assert!(
-                path.is_empty() ||
-                !path.starts_with("C:\\") && !path.starts_with("\\\\"),
-                "Path should be invalid: {}", path
+                path.is_empty() || !path.starts_with("C:\\") && !path.starts_with("\\\\"),
+                "Path should be invalid: {}",
+                path
             );
         }
     }
@@ -1176,7 +1287,10 @@ mod tests {
         for device_id in device_ids {
             // Device IDs should be valid strings
             assert!(!device_id.is_empty());
-            assert!(device_id.len() < 1000, "Device ID should be reasonable length");
+            assert!(
+                device_id.len() < 1000,
+                "Device ID should be reasonable length"
+            );
 
             // Device IDs should be encodable as UTF-16 for Windows APIs
             let utf16: Vec<u16> = device_id.encode_utf16().collect();
@@ -1187,17 +1301,9 @@ mod tests {
     #[test]
     fn test_object_id_validation() {
         // Test object ID validation scenarios
-        let valid_object_ids = vec![
-            "obj-123",
-            "F1234567890ABCDEF",
-            "0x1234",
-            "simple",
-        ];
+        let valid_object_ids = vec!["obj-123", "F1234567890ABCDEF", "0x1234", "simple"];
 
-        let invalid_object_ids = vec![
-            "",
-            "   ",
-        ];
+        let invalid_object_ids = vec!["", "   "];
 
         for object_id in valid_object_ids {
             assert!(!object_id.is_empty());
@@ -1235,7 +1341,10 @@ mod tests {
         assert!(folder_id_root.is_none(), "None represents root folder");
 
         // Some(folder_id) should represent specific folder
-        assert!(folder_id_explicit.is_some(), "Some(folder_id) represents specific folder");
+        assert!(
+            folder_id_explicit.is_some(),
+            "Some(folder_id) represents specific folder"
+        );
         assert_eq!(folder_id_explicit.as_ref().unwrap(), "folder-123");
     }
 
@@ -1250,29 +1359,23 @@ mod tests {
             "E:\\music\\album\\track.mp3",
         ];
 
-        let relative_paths = vec![
-            "file.mp3",
-            "temp/file.mp3",
-            "./file.mp3",
-        ];
+        let relative_paths = vec!["file.mp3", "temp/file.mp3", "./file.mp3"];
 
         for path in absolute_paths {
             // Absolute paths should be accepted
             assert!(
-                path.starts_with("C:\\") ||
-                path.starts_with("D:\\") ||
-                path.starts_with("E:\\"),
-                "Path should be absolute: {}", path
+                path.starts_with("C:\\") || path.starts_with("D:\\") || path.starts_with("E:\\"),
+                "Path should be absolute: {}",
+                path
             );
         }
 
         for path in relative_paths {
             // Relative paths should be rejected or normalized
             assert!(
-                !path.starts_with("C:\\") &&
-                !path.starts_with("D:\\") &&
-                !path.starts_with("\\\\"),
-                "Relative path detected: {}", path
+                !path.starts_with("C:\\") && !path.starts_with("D:\\") && !path.starts_with("\\\\"),
+                "Relative path detected: {}",
+                path
             );
         }
     }
@@ -1322,18 +1425,19 @@ mod tests {
             1024u64,
             false,
         );
-        assert!(!file_info_valid.0.is_empty(), "object_id should not be empty");
+        assert!(
+            !file_info_valid.0.is_empty(),
+            "object_id should not be empty"
+        );
         assert!(!file_info_valid.1.is_empty(), "name should not be empty");
         assert!(file_info_valid.2 >= 0, "size should be non-negative");
 
         // Valid folder info
-        let folder_info_valid = (
-            "folder-456".to_string(),
-            "Music".to_string(),
-            0u64,
-            true,
+        let folder_info_valid = ("folder-456".to_string(), "Music".to_string(), 0u64, true);
+        assert_eq!(
+            folder_info_valid.3, true,
+            "is_folder should be true for folders"
         );
-        assert_eq!(folder_info_valid.3, true, "is_folder should be true for folders");
         assert_eq!(folder_info_valid.2, 0, "Folders typically have size 0");
     }
 
@@ -1401,16 +1505,18 @@ mod tests {
         let app_state = Arc::new(AppState::new().expect("Failed to create AppState"));
 
         // Simulate concurrent operations
-        let handles: Vec<_> = (0..3).map(|i| {
-            let state = Arc::clone(&app_state);
-            thread::spawn(move || {
-                // Each thread attempts to check connection state
-                let connection = state.active_device_connection.lock().unwrap();
-                let _is_connected = connection.is_some();
-                // Operations should not interfere with each other
-                i // Return thread number for verification
+        let handles: Vec<_> = (0..3)
+            .map(|i| {
+                let state = Arc::clone(&app_state);
+                thread::spawn(move || {
+                    // Each thread attempts to check connection state
+                    let connection = state.active_device_connection.lock().unwrap();
+                    let _is_connected = connection.is_some();
+                    // Operations should not interfere with each other
+                    i // Return thread number for verification
+                })
             })
-        }).collect();
+            .collect();
 
         let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         assert_eq!(results.len(), 3, "All threads should complete");
@@ -1452,9 +1558,9 @@ mod tests {
     fn test_folder_id_normalization() {
         // Test folder ID normalization and validation
         let folder_ids = vec![
-            None,                           // Root
-            Some("".to_string()),           // Empty (should be treated as root)
-            Some("folder".to_string()),     // Simple folder
+            None,                                 // Root
+            Some("".to_string()),                 // Empty (should be treated as root)
+            Some("folder".to_string()),           // Simple folder
             Some("folder/subfolder".to_string()), // Nested folder
         ];
 
@@ -1477,12 +1583,12 @@ mod tests {
     fn test_file_size_edge_cases() {
         // Test file size edge cases
         let file_sizes = vec![
-            0u64,           // Empty file
-            1u64,           // Single byte
-            1024u64,        // 1 KB
-            1024 * 1024u64, // 1 MB
+            0u64,                  // Empty file
+            1u64,                  // Single byte
+            1024u64,               // 1 KB
+            1024 * 1024u64,        // 1 MB
             1024 * 1024 * 1024u64, // 1 GB
-            u64::MAX,       // Maximum size
+            u64::MAX,              // Maximum size
         ];
 
         for size in file_sizes {

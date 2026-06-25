@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../tauri';
 import { DeviceInfo, FileInfo, DeviceConnectionState } from '../../shared/models/device.model';
 import { AsyncHandlerService } from './async-handler.service';
 
@@ -90,14 +90,15 @@ export class MtpDeviceService {
   public async disconnectDevice(): Promise<void> {
     try {
       await invoke('disconnect_device');
-
-      this._activeDevice.set(null);
-      this._deviceFiles.set([]);
-      this._currentFolder.set(null);
-
       console.log('Device disconnected');
     } catch (error) {
       console.error('Failed to disconnect device:', error);
+    } finally {
+      // Always clear local connection state, even if the backend call failed,
+      // so the UI does not remain stuck showing a connected device.
+      this._activeDevice.set(null);
+      this._deviceFiles.set([]);
+      this._currentFolder.set(null);
     }
   }
 

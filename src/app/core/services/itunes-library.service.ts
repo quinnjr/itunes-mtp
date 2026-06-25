@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../tauri';
 import { ITunesLibrary, LibraryState, Track, Playlist } from '../../shared/models/library.model';
 import { AsyncHandlerService } from './async-handler.service';
 

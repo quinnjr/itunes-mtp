@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { installTauriInvokeMock } from '../tauri.testing';
 import { AppStateService } from './app-state.service';
 import { MtpDeviceService } from './mtp-device.service';
 import { ItunesLibraryService } from './itunes-library.service';
@@ -27,11 +28,14 @@ describe('AppStateService', () => {
       ]
     });
 
+    // Install the Tauri IPC spy before services are constructed, since
+    // MtpDeviceService issues an `invoke` call from its constructor.
+    vi.clearAllMocks();
+    installTauriInvokeMock().mockResolvedValue([]);
+
     service = TestBed.inject(AppStateService);
     itunesLibraryService = TestBed.inject(ItunesLibraryService);
     syncService = TestBed.inject(SyncService);
-
-    vi.clearAllMocks();
   });
 
   describe('Service Initialization', () => {

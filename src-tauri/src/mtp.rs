@@ -11,9 +11,11 @@ use std::{
 use windows::{
     core::*,
     Win32::Devices::PortableDevices::*,
-    Win32::System::Com::*,
-    Win32::System::Com::StructuredStorage::{PropVariantToStringAlloc, PropVariantToUInt64, PropVariantToGUID},
     Win32::Foundation::RPC_E_CHANGED_MODE,
+    Win32::System::Com::StructuredStorage::{
+        PropVariantToGUID, PropVariantToStringAlloc, PropVariantToUInt64,
+    },
+    Win32::System::Com::*,
 };
 
 #[cfg(windows)]
@@ -99,7 +101,8 @@ impl MtpDeviceManager {
                 &PortableDeviceManager as *const GUID,
                 None,
                 CLSCTX_INPROC_SERVER,
-            ).map_err(|e| MtpError::ComError(format!("Failed to create device manager: {}", e)))?;
+            )
+            .map_err(|e| MtpError::ComError(format!("Failed to create device manager: {}", e)))?;
 
             Ok(Self {
                 device_manager,
@@ -124,7 +127,9 @@ impl MtpDeviceManager {
             let mut device_ids: Vec<PWSTR> = vec![PWSTR::null(); device_count as usize];
             self.device_manager
                 .GetDevices(device_ids.as_mut_ptr(), &mut device_count)
-                .map_err(|e| MtpError::DeviceError(format!("Failed to enumerate devices: {}", e)))?;
+                .map_err(|e| {
+                    MtpError::DeviceError(format!("Failed to enumerate devices: {}", e))
+                })?;
 
             let mut devices = Vec::new();
 
@@ -133,14 +138,20 @@ impl MtpDeviceManager {
                     let device_id_pcwstr = PCWSTR::from_raw(device_id.as_ptr());
 
                     // Get friendly name
-                    let friendly_name = self.get_device_string(
-                        |buf, len| self.device_manager.GetDeviceFriendlyName(device_id_pcwstr, buf, len)
-                    ).unwrap_or_else(|_| "Unknown Device".to_string());
+                    let friendly_name = self
+                        .get_device_string(|buf, len| {
+                            self.device_manager
+                                .GetDeviceFriendlyName(device_id_pcwstr, buf, len)
+                        })
+                        .unwrap_or_else(|_| "Unknown Device".to_string());
 
                     // Get manufacturer
-                    let manufacturer = self.get_device_string(
-                        |buf, len| self.device_manager.GetDeviceManufacturer(device_id_pcwstr, buf, len)
-                    ).unwrap_or_else(|_| "Unknown Manufacturer".to_string());
+                    let manufacturer = self
+                        .get_device_string(|buf, len| {
+                            self.device_manager
+                                .GetDeviceManufacturer(device_id_pcwstr, buf, len)
+                        })
+                        .unwrap_or_else(|_| "Unknown Manufacturer".to_string());
 
                     devices.push(DeviceInfo {
                         device_id: device_id_str,
@@ -168,7 +179,9 @@ impl MtpDeviceManager {
         let mut buffer = vec![0u16; len as usize];
         getter(PWSTR(buffer.as_mut_ptr()), &mut len)?;
 
-        Ok(String::from_utf16_lossy(&buffer[..len.saturating_sub(1) as usize]))
+        Ok(String::from_utf16_lossy(
+            &buffer[..len.saturating_sub(1) as usize],
+        ))
     }
 }
 
@@ -206,18 +219,19 @@ impl MtpDevice {
             let com_initialized = hr.is_ok() || hr == RPC_E_CHANGED_MODE;
 
             // Create device instance
-            let device: IPortableDevice = CoCreateInstance(
-                &PortableDevice as *const GUID,
-                None,
-                CLSCTX_INPROC_SERVER,
-            ).map_err(|e| MtpError::ComError(format!("Failed to create device instance: {}", e)))?;
+            let device: IPortableDevice =
+                CoCreateInstance(&PortableDevice as *const GUID, None, CLSCTX_INPROC_SERVER)
+                    .map_err(|e| {
+                        MtpError::ComError(format!("Failed to create device instance: {}", e))
+                    })?;
 
             // Create client info
             let client_info: IPortableDeviceValues = CoCreateInstance(
                 &PortableDeviceValues as *const GUID,
                 None,
                 CLSCTX_INPROC_SERVER,
-            ).map_err(|e| MtpError::ComError(format!("Failed to create client info: {}", e)))?;
+            )
+            .map_err(|e| MtpError::ComError(format!("Failed to create client info: {}", e)))?;
 
             // Set client information
             client_info.SetStringValue(&WPD_CLIENT_NAME, &HSTRING::from("iTunes MTP Sync"))?;
@@ -226,16 +240,19 @@ impl MtpDevice {
             client_info.SetUnsignedIntegerValue(&WPD_CLIENT_REVISION, 0)?;
 
             // Convert device_id to wide string
-            let device_id_wide: Vec<u16> = device_id.encode_utf16().chain(std::iter::once(0)).collect();
+            let device_id_wide: Vec<u16> =
+                device_id.encode_utf16().chain(std::iter::once(0)).collect();
             let device_id_pcwstr = PCWSTR::from_raw(device_id_wide.as_ptr());
 
             // Open device
-            device.Open(device_id_pcwstr, &client_info)
+            device
+                .Open(device_id_pcwstr, &client_info)
                 .map_err(|e| MtpError::DeviceError(format!("Failed to open device: {}", e)))?;
 
             // Get content interface
-            let content = device.Content()
-                .map_err(|e| MtpError::DeviceError(format!("Failed to get content interface: {}", e)))?;
+            let content = device.Content().map_err(|e| {
+                MtpError::DeviceError(format!("Failed to get content interface: {}", e))
+            })?;
 
             Ok(Self {
                 device,
@@ -255,9 +272,9 @@ impl MtpDevice {
                 WPD_DEVICE_OBJECT_ID
             };
 
-            let enum_objects = self.content
-                .EnumObjects(0, parent_id, None)
-                .map_err(|e| MtpError::DeviceError(format!("Failed to enumerate objects: {}", e)))?;
+            let enum_objects = self.content.EnumObjects(0, parent_id, None).map_err(|e| {
+                MtpError::DeviceError(format!("Failed to enumerate objects: {}", e))
+            })?;
 
             let mut files = Vec::new();
             let mut object_ids = [PWSTR::null(); 10];
@@ -286,14 +303,17 @@ impl MtpDevice {
 
     pub fn get_file_info(&self, object_id: &str) -> Result<FileInfo, Box<dyn Error>> {
         unsafe {
-            let properties = self.content.Properties()
-                .map_err(|e| MtpError::DeviceError(format!("Failed to get properties interface: {}", e)))?;
+            let properties = self.content.Properties().map_err(|e| {
+                MtpError::DeviceError(format!("Failed to get properties interface: {}", e))
+            })?;
 
-            let object_id_wide: Vec<u16> = object_id.encode_utf16().chain(std::iter::once(0)).collect();
+            let object_id_wide: Vec<u16> =
+                object_id.encode_utf16().chain(std::iter::once(0)).collect();
             let object_id_pcwstr = PCWSTR::from_raw(object_id_wide.as_ptr());
 
-            let object_properties = properties.GetValues(object_id_pcwstr, None)
-                .map_err(|e| MtpError::DeviceError(format!("Failed to get object properties: {}", e)))?;
+            let object_properties = properties.GetValues(object_id_pcwstr, None).map_err(|e| {
+                MtpError::DeviceError(format!("Failed to get object properties: {}", e))
+            })?;
 
             // Get name
             let name = match object_properties.GetValue(&WPD_OBJECT_NAME) {
@@ -333,24 +353,29 @@ impl MtpDevice {
 
     pub fn transfer_file(&self, object_id: &str, dest_path: &str) -> Result<(), Box<dyn Error>> {
         unsafe {
-            let resources = self.content.Transfer()
-                .map_err(|e| MtpError::TransferError(format!("Failed to get transfer interface: {}", e)))?;
+            let resources = self.content.Transfer().map_err(|e| {
+                MtpError::TransferError(format!("Failed to get transfer interface: {}", e))
+            })?;
 
-            let object_id_wide: Vec<u16> = object_id.encode_utf16().chain(std::iter::once(0)).collect();
+            let object_id_wide: Vec<u16> =
+                object_id.encode_utf16().chain(std::iter::once(0)).collect();
             let object_id_pcwstr = PCWSTR::from_raw(object_id_wide.as_ptr());
 
             let mut optimal_buffer_size: u32 = 0;
             let mut stream: Option<IStream> = None;
 
-            resources.GetStream(
-                object_id_pcwstr,
-                &WPD_RESOURCE_DEFAULT,
-                STGM_READ.0 as u32,
-                &mut optimal_buffer_size,
-                &mut stream,
-            ).map_err(|e| MtpError::TransferError(format!("Failed to get stream: {}", e)))?;
+            resources
+                .GetStream(
+                    object_id_pcwstr,
+                    &WPD_RESOURCE_DEFAULT,
+                    STGM_READ.0 as u32,
+                    &mut optimal_buffer_size,
+                    &mut stream,
+                )
+                .map_err(|e| MtpError::TransferError(format!("Failed to get stream: {}", e)))?;
 
-            let stream = stream.ok_or_else(|| MtpError::TransferError("No stream returned".to_string()))?;
+            let stream =
+                stream.ok_or_else(|| MtpError::TransferError("No stream returned".to_string()))?;
 
             let buffer_size = if optimal_buffer_size > 0 {
                 optimal_buffer_size as usize
@@ -359,8 +384,9 @@ impl MtpDevice {
             };
 
             let mut buffer = vec![0u8; buffer_size];
-            let mut file = std::fs::File::create(dest_path)
-                .map_err(|e| MtpError::TransferError(format!("Failed to create destination file: {}", e)))?;
+            let mut file = std::fs::File::create(dest_path).map_err(|e| {
+                MtpError::TransferError(format!("Failed to create destination file: {}", e))
+            })?;
 
             loop {
                 let mut bytes_read: u32 = 0;
@@ -375,7 +401,9 @@ impl MtpDevice {
                 }
 
                 file.write_all(&buffer[..bytes_read as usize])
-                    .map_err(|e| MtpError::TransferError(format!("Failed to write to file: {}", e)))?;
+                    .map_err(|e| {
+                        MtpError::TransferError(format!("Failed to write to file: {}", e))
+                    })?;
             }
 
             Ok(())
@@ -388,7 +416,11 @@ impl MtpDevice {
 
     /// Check if a folder exists in the specified parent folder
     /// Returns the folder's object ID if found, None otherwise
-    pub fn folder_exists(&self, parent_id: &str, folder_name: &str) -> Result<Option<String>, Box<dyn Error>> {
+    pub fn folder_exists(
+        &self,
+        parent_id: &str,
+        folder_name: &str,
+    ) -> Result<Option<String>, Box<dyn Error>> {
         let files = self.list_files(Some(parent_id))?;
 
         for file in files {
@@ -403,7 +435,11 @@ impl MtpDevice {
     /// Create a folder in the specified parent folder
     /// Returns the object ID of the created folder
     /// If the folder already exists, returns its existing object ID
-    pub fn create_folder(&self, parent_id: &str, folder_name: &str) -> Result<String, Box<dyn Error>> {
+    pub fn create_folder(
+        &self,
+        parent_id: &str,
+        folder_name: &str,
+    ) -> Result<String, Box<dyn Error>> {
         unsafe {
             // First check if folder already exists
             if let Some(existing_id) = self.folder_exists(parent_id, folder_name)? {
@@ -415,10 +451,12 @@ impl MtpDevice {
                 &PortableDeviceValues as *const GUID,
                 None,
                 CLSCTX_INPROC_SERVER,
-            ).map_err(|e| MtpError::ComError(format!("Failed to create property values: {}", e)))?;
+            )
+            .map_err(|e| MtpError::ComError(format!("Failed to create property values: {}", e)))?;
 
             // Set parent folder ID
-            let parent_id_wide: Vec<u16> = parent_id.encode_utf16().chain(std::iter::once(0)).collect();
+            let parent_id_wide: Vec<u16> =
+                parent_id.encode_utf16().chain(std::iter::once(0)).collect();
             let parent_id_pcwstr = PCWSTR::from_raw(parent_id_wide.as_ptr());
             properties.SetStringValue(&WPD_OBJECT_PARENT_ID, parent_id_pcwstr)?;
 
@@ -431,14 +469,16 @@ impl MtpDevice {
 
             // Create the folder
             let mut object_id = PWSTR::null();
-            self.content.CreateObjectWithPropertiesOnly(&properties, &mut object_id)
+            self.content
+                .CreateObjectWithPropertiesOnly(&properties, &mut object_id)
                 .map_err(|e| MtpError::DeviceError(format!("Failed to create folder: {}", e)))?;
 
-            let object_id_str = object_id.to_string()
-                .unwrap_or_else(|_| String::new());
+            let object_id_str = object_id.to_string().unwrap_or_else(|_| String::new());
 
             if object_id_str.is_empty() {
-                return Err(Box::new(MtpError::DeviceError("Failed to get created folder ID".to_string())));
+                return Err(Box::new(MtpError::DeviceError(
+                    "Failed to get created folder ID".to_string(),
+                )));
             }
 
             Ok(object_id_str)
@@ -448,7 +488,11 @@ impl MtpDevice {
     /// Ensure a folder path exists on the device, creating all necessary parent folders
     /// Path format: "Music/Artist Name/Album Name" (forward slashes)
     /// Returns the object ID of the final folder
-    pub fn ensure_folder_path(&self, base_folder_id: &str, path: &str) -> Result<String, Box<dyn Error>> {
+    pub fn ensure_folder_path(
+        &self,
+        base_folder_id: &str,
+        path: &str,
+    ) -> Result<String, Box<dyn Error>> {
         if path.is_empty() {
             return Ok(base_folder_id.to_string());
         }
@@ -487,15 +531,24 @@ impl MtpDevice {
     ///
     /// # Returns
     /// Object ID of the uploaded file on the device
-    pub fn upload_file(&self, local_path: &str, parent_folder_id: &str, file_name: &str) -> Result<String, Box<dyn Error>> {
+    pub fn upload_file(
+        &self,
+        local_path: &str,
+        parent_folder_id: &str,
+        file_name: &str,
+    ) -> Result<String, Box<dyn Error>> {
         unsafe {
             // Open the local file
-            let mut local_file = std::fs::File::open(local_path)
-                .map_err(|e| MtpError::TransferError(format!("Failed to open local file: {}", e)))?;
+            let mut local_file = std::fs::File::open(local_path).map_err(|e| {
+                MtpError::TransferError(format!("Failed to open local file: {}", e))
+            })?;
 
             // Get file size
-            let file_size = local_file.metadata()
-                .map_err(|e| MtpError::TransferError(format!("Failed to get file metadata: {}", e)))?
+            let file_size = local_file
+                .metadata()
+                .map_err(|e| {
+                    MtpError::TransferError(format!("Failed to get file metadata: {}", e))
+                })?
                 .len();
 
             // Create property values for the new file
@@ -503,10 +556,14 @@ impl MtpDevice {
                 &PortableDeviceValues as *const GUID,
                 None,
                 CLSCTX_INPROC_SERVER,
-            ).map_err(|e| MtpError::ComError(format!("Failed to create property values: {}", e)))?;
+            )
+            .map_err(|e| MtpError::ComError(format!("Failed to create property values: {}", e)))?;
 
             // Set parent folder ID
-            let parent_id_wide: Vec<u16> = parent_folder_id.encode_utf16().chain(std::iter::once(0)).collect();
+            let parent_id_wide: Vec<u16> = parent_folder_id
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
             let parent_id_pcwstr = PCWSTR::from_raw(parent_id_wide.as_ptr());
             properties.SetStringValue(&WPD_OBJECT_PARENT_ID, parent_id_pcwstr)?;
 
@@ -526,14 +583,22 @@ impl MtpDevice {
             let mut data_stream: Option<IStream> = None;
             let mut object_id = PWSTR::null();
 
-            self.content.CreateObjectWithPropertiesAndData(
-                &properties,
-                &mut data_stream,
-                &mut optimal_buffer_size,
-                &mut object_id,
-            ).map_err(|e| MtpError::TransferError(format!("Failed to create object with data stream: {}", e)))?;
+            self.content
+                .CreateObjectWithPropertiesAndData(
+                    &properties,
+                    &mut data_stream,
+                    &mut optimal_buffer_size,
+                    &mut object_id,
+                )
+                .map_err(|e| {
+                    MtpError::TransferError(format!(
+                        "Failed to create object with data stream: {}",
+                        e
+                    ))
+                })?;
 
-            let stream = data_stream.ok_or_else(|| MtpError::TransferError("No data stream returned".to_string()))?;
+            let stream = data_stream
+                .ok_or_else(|| MtpError::TransferError("No data stream returned".to_string()))?;
 
             // Determine buffer size (prefer optimal, fallback to 64KB)
             let buffer_size = if optimal_buffer_size > 0 {
@@ -547,8 +612,9 @@ impl MtpDevice {
 
             // Read from local file and write to device stream in chunks
             loop {
-                let bytes_read = local_file.read(&mut buffer)
-                    .map_err(|e| MtpError::TransferError(format!("Failed to read from local file: {}", e)))?;
+                let bytes_read = local_file.read(&mut buffer).map_err(|e| {
+                    MtpError::TransferError(format!("Failed to read from local file: {}", e))
+                })?;
 
                 if bytes_read == 0 {
                     break; // EOF
@@ -563,28 +629,30 @@ impl MtpDevice {
                 );
 
                 if write_result.is_err() {
-                    return Err(Box::new(MtpError::TransferError(
-                        format!("Failed to write to device stream: {:?}", write_result)
-                    )));
+                    return Err(Box::new(MtpError::TransferError(format!(
+                        "Failed to write to device stream: {:?}",
+                        write_result
+                    ))));
                 }
 
                 total_written += bytes_written as u64;
 
                 // If we didn't write all bytes, that's an error
                 if bytes_written as usize != bytes_read {
-                    return Err(Box::new(MtpError::TransferError(
-                        format!("Partial write: wrote {}/{} bytes", bytes_written, bytes_read)
-                    )));
+                    return Err(Box::new(MtpError::TransferError(format!(
+                        "Partial write: wrote {}/{} bytes",
+                        bytes_written, bytes_read
+                    ))));
                 }
             }
 
             // Commit the stream to finalize the upload
-            stream.Commit(STGC_DEFAULT)
+            stream
+                .Commit(STGC_DEFAULT)
                 .map_err(|e| MtpError::TransferError(format!("Failed to commit stream: {}", e)))?;
 
             // Get the created object ID
-            let object_id_str = object_id.to_string()
-                .unwrap_or_else(|_| String::new());
+            let object_id_str = object_id.to_string().unwrap_or_else(|_| String::new());
 
             if object_id_str.is_empty() {
                 // Fallback: enumerate parent folder to find the file by name and size
@@ -596,7 +664,7 @@ impl MtpDevice {
                 }
 
                 return Err(Box::new(MtpError::TransferError(
-                    "File uploaded but could not retrieve object ID".to_string()
+                    "File uploaded but could not retrieve object ID".to_string(),
                 )));
             }
 
@@ -638,8 +706,8 @@ impl MtpDevice {
             // Real implementation would require device-specific handling or
             // use of device manufacturer's proprietary APIs
             Ok(StorageInfo {
-                total_space,      // Unknown - would need device-specific implementation
-                free_space,       // Unknown - would need device-specific implementation
+                total_space, // Unknown - would need device-specific implementation
+                free_space,  // Unknown - would need device-specific implementation
                 used_space: used_space_estimate,
             })
         }
@@ -650,15 +718,28 @@ impl MtpDevice {
 fn determine_content_type(file_name: &str) -> GUID {
     let lower = file_name.to_lowercase();
 
-    if lower.ends_with(".mp3") || lower.ends_with(".m4a") || lower.ends_with(".m4p") ||
-       lower.ends_with(".aac") || lower.ends_with(".wma") || lower.ends_with(".wav") ||
-       lower.ends_with(".flac") || lower.ends_with(".ogg") {
+    if lower.ends_with(".mp3")
+        || lower.ends_with(".m4a")
+        || lower.ends_with(".m4p")
+        || lower.ends_with(".aac")
+        || lower.ends_with(".wma")
+        || lower.ends_with(".wav")
+        || lower.ends_with(".flac")
+        || lower.ends_with(".ogg")
+    {
         WPD_CONTENT_TYPE_AUDIO
-    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") || lower.ends_with(".png") ||
-              lower.ends_with(".gif") || lower.ends_with(".bmp") {
+    } else if lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".png")
+        || lower.ends_with(".gif")
+        || lower.ends_with(".bmp")
+    {
         WPD_CONTENT_TYPE_IMAGE
-    } else if lower.ends_with(".mp4") || lower.ends_with(".avi") || lower.ends_with(".mov") ||
-              lower.ends_with(".wmv") {
+    } else if lower.ends_with(".mp4")
+        || lower.ends_with(".avi")
+        || lower.ends_with(".mov")
+        || lower.ends_with(".wmv")
+    {
         WPD_CONTENT_TYPE_VIDEO
     } else {
         WPD_CONTENT_TYPE_UNSPECIFIED
@@ -702,7 +783,9 @@ impl ThreadSafeMtpManager {
     }
 
     pub fn get_devices(&self) -> Result<Vec<DeviceInfo>, Box<dyn Error>> {
-        let manager = self.manager.lock()
+        let manager = self
+            .manager
+            .lock()
             .map_err(|e| MtpError::InvalidOperation(format!("Failed to lock manager: {}", e)))?;
         manager.get_devices()
     }
@@ -735,56 +818,109 @@ impl ThreadSafeMtpDevice {
     }
 
     pub fn list_files(&self, folder_id: Option<&str>) -> Result<Vec<FileInfo>, Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.list_files(folder_id)
     }
 
     pub fn get_file_info(&self, object_id: &str) -> Result<FileInfo, Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.get_file_info(object_id)
     }
 
     pub fn transfer_file(&self, object_id: &str, dest_path: &str) -> Result<(), Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.transfer_file(object_id, dest_path)
     }
 
-    pub fn folder_exists(&self, parent_id: &str, folder_name: &str) -> Result<Option<String>, Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+    pub fn folder_exists(
+        &self,
+        parent_id: &str,
+        folder_name: &str,
+    ) -> Result<Option<String>, Box<dyn Error>> {
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.folder_exists(parent_id, folder_name)
     }
 
-    pub fn create_folder(&self, parent_id: &str, folder_name: &str) -> Result<String, Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+    pub fn create_folder(
+        &self,
+        parent_id: &str,
+        folder_name: &str,
+    ) -> Result<String, Box<dyn Error>> {
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.create_folder(parent_id, folder_name)
     }
 
-    pub fn ensure_folder_path(&self, base_folder_id: &str, path: &str) -> Result<String, Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+    pub fn ensure_folder_path(
+        &self,
+        base_folder_id: &str,
+        path: &str,
+    ) -> Result<String, Box<dyn Error>> {
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.ensure_folder_path(base_folder_id, path)
     }
 
     pub fn get_or_create_music_folder(&self) -> Result<String, Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.get_or_create_music_folder()
     }
 
-    pub fn upload_file(&self, local_path: &str, parent_folder_id: &str, file_name: &str) -> Result<String, Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+    pub fn upload_file(
+        &self,
+        local_path: &str,
+        parent_folder_id: &str,
+        file_name: &str,
+    ) -> Result<String, Box<dyn Error>> {
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.upload_file(local_path, parent_folder_id, file_name)
     }
 
     pub fn get_storage_info(&self) -> Result<StorageInfo, Box<dyn Error>> {
-        let device = self.device.lock()
-            .map_err(|e| Box::new(MtpError::InvalidOperation(format!("Failed to lock device: {}", e))) as Box<dyn Error>)?;
+        let device = self.device.lock().map_err(|e| {
+            Box::new(MtpError::InvalidOperation(format!(
+                "Failed to lock device: {}",
+                e
+            ))) as Box<dyn Error>
+        })?;
         device.get_storage_info()
     }
 
@@ -891,17 +1027,15 @@ mod tests {
     #[test]
     fn test_invalid_device_id_format() {
         // Test various invalid device ID formats
-        let invalid_ids = vec![
-            "",
-            "   ",
-            "\n\t",
-        ];
+        let invalid_ids = vec!["", "   ", "\n\t"];
 
         for invalid_id in invalid_ids {
             // These would fail when creating a device, but we can document expected behavior
             // Empty strings are invalid, whitespace-only strings are invalid
-            assert!(invalid_id.trim().is_empty(),
-                "Device ID validation should be tested with actual device connection");
+            assert!(
+                invalid_id.trim().is_empty(),
+                "Device ID validation should be tested with actual device connection"
+            );
         }
     }
 
@@ -909,7 +1043,10 @@ mod tests {
     fn test_error_chain_handling() {
         // Test that error types properly implement Error trait
         let error: Box<dyn Error> = Box::new(MtpError::DeviceError("test".to_string()));
-        assert!(error.source().is_none(), "MtpError should not have a source");
+        assert!(
+            error.source().is_none(),
+            "MtpError should not have a source"
+        );
     }
 
     #[test]
@@ -990,7 +1127,10 @@ mod tests {
         assert!(connected_state.is_some(), "Connected state should be Some");
 
         let disconnected_state: Option<String> = None;
-        assert_eq!(disconnected_state, initial_state, "Disconnected returns to None");
+        assert_eq!(
+            disconnected_state, initial_state,
+            "Disconnected returns to None"
+        );
     }
 
     #[test]
@@ -1040,9 +1180,13 @@ mod tests {
         for device_id in device_ids {
             // Device IDs should be valid UTF-8 strings
             assert!(
-                device_id.is_ascii() ||
-                device_id.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | ':')),
-                "Device ID should be valid: {}", device_id);
+                device_id.is_ascii()
+                    || device_id
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | ':')),
+                "Device ID should be valid: {}",
+                device_id
+            );
         }
     }
 
@@ -1057,8 +1201,11 @@ mod tests {
 
         for path in windows_paths {
             // Paths should contain drive letter or UNC prefix
-            assert!(path.starts_with("C:\\") || path.starts_with("D:\\") || path.starts_with("\\\\"),
-                "Path should be valid Windows path: {}", path);
+            assert!(
+                path.starts_with("C:\\") || path.starts_with("D:\\") || path.starts_with("\\\\"),
+                "Path should be valid Windows path: {}",
+                path
+            );
         }
     }
 
@@ -1138,7 +1285,10 @@ mod tests {
             assert!(!object_id.is_empty(), "Object ID should not be empty");
 
             // Object IDs should be valid for storage/transmission
-            assert!(object_id.len() < 1000, "Object ID should be reasonable length");
+            assert!(
+                object_id.len() < 1000,
+                "Object ID should be reasonable length"
+            );
         }
     }
 
@@ -1171,14 +1321,7 @@ mod tests {
     #[test]
     fn test_file_size_edge_cases() {
         // Test file size handling with edge cases
-        let sizes = vec![
-            0,
-            1,
-            1024,
-            1024 * 1024,
-            1024 * 1024 * 1024,
-            u64::MAX / 2,
-        ];
+        let sizes = vec![0, 1, 1024, 1024 * 1024, 1024 * 1024 * 1024, u64::MAX / 2];
 
         for size in sizes {
             let file = FileInfo {
@@ -1196,12 +1339,14 @@ mod tests {
         // Test that errors can be created from multiple threads
         use std::thread;
 
-        let handles: Vec<_> = (0..10).map(|i| {
-            thread::spawn(move || {
-                let error = MtpError::DeviceError(format!("Error {}", i));
-                assert!(error.to_string().contains("Error"));
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                thread::spawn(move || {
+                    let error = MtpError::DeviceError(format!("Error {}", i));
+                    assert!(error.to_string().contains("Error"));
+                })
             })
-        }).collect();
+            .collect();
 
         for handle in handles {
             handle.join().unwrap();
@@ -1260,20 +1405,30 @@ mod tests {
         // Without actual device, we verify the method signatures and return types
 
         // list_files should accept Option<&str>
-        fn test_list_files_signature(_device: &ThreadSafeMtpDevice, folder_id: Option<&str>) -> Result<Vec<FileInfo>, Box<dyn Error>> {
+        fn test_list_files_signature(
+            _device: &ThreadSafeMtpDevice,
+            folder_id: Option<&str>,
+        ) -> Result<Vec<FileInfo>, Box<dyn Error>> {
             // Signature test only - can't call without actual device
             let _ = folder_id;
             Err("Test signature only".into())
         }
 
         // get_file_info should accept &str
-        fn test_get_file_info_signature(_device: &ThreadSafeMtpDevice, object_id: &str) -> Result<FileInfo, Box<dyn Error>> {
+        fn test_get_file_info_signature(
+            _device: &ThreadSafeMtpDevice,
+            object_id: &str,
+        ) -> Result<FileInfo, Box<dyn Error>> {
             let _ = object_id;
             Err("Test signature only".into())
         }
 
         // transfer_file should accept &str for both parameters
-        fn test_transfer_file_signature(_device: &ThreadSafeMtpDevice, object_id: &str, dest_path: &str) -> Result<(), Box<dyn Error>> {
+        fn test_transfer_file_signature(
+            _device: &ThreadSafeMtpDevice,
+            object_id: &str,
+            dest_path: &str,
+        ) -> Result<(), Box<dyn Error>> {
             let _ = (object_id, dest_path);
             Err("Test signature only".into())
         }
@@ -1295,7 +1450,10 @@ mod tests {
         for error in error_scenarios {
             let message = error.to_string();
             assert!(!message.is_empty(), "Error message should not be empty");
-            assert!(message.len() > 10, "Error message should have sufficient detail");
+            assert!(
+                message.len() > 10,
+                "Error message should have sufficient detail"
+            );
         }
     }
 
@@ -1319,7 +1477,11 @@ mod tests {
             MtpError::DeviceError("Device disconnected during transfer".to_string()),
         ];
 
-        for error in list_files_errors.iter().chain(get_file_info_errors.iter()).chain(transfer_errors.iter()) {
+        for error in list_files_errors
+            .iter()
+            .chain(get_file_info_errors.iter())
+            .chain(transfer_errors.iter())
+        {
             let message = error.to_string();
             assert!(!message.is_empty());
         }
@@ -1337,10 +1499,16 @@ mod tests {
         // - Some(device) but lock fails: Connection lost
 
         let connection_none: Option<String> = None;
-        assert!(!connection_none.is_some(), "None should indicate no connection");
+        assert!(
+            !connection_none.is_some(),
+            "None should indicate no connection"
+        );
 
         let connection_some: Option<String> = Some("device-id".to_string());
-        assert!(connection_some.is_some(), "Some should indicate connection exists");
+        assert!(
+            connection_some.is_some(),
+            "Some should indicate connection exists"
+        );
     }
 
     #[test]
@@ -1363,11 +1531,11 @@ mod tests {
     fn test_file_listing_edge_cases() {
         // Test edge cases for file listing operations
         let folder_id_cases = vec![
-            None,  // Root folder
-            Some(""),  // Empty string (might be invalid)
-            Some("folder-id"),  // Normal case
-            Some("folder/with/slashes"),  // Nested folder
-            Some("folder.with.dots"),  // Folder with dots
+            None,                        // Root folder
+            Some(""),                    // Empty string (might be invalid)
+            Some("folder-id"),           // Normal case
+            Some("folder/with/slashes"), // Nested folder
+            Some("folder.with.dots"),    // Folder with dots
         ];
 
         for folder_id in folder_id_cases {
@@ -1391,10 +1559,10 @@ mod tests {
     fn test_file_info_retrieval_edge_cases() {
         // Test edge cases for get_file_info
         let object_id_cases: Vec<String> = vec![
-            "".to_string(),  // Empty (invalid)
+            "".to_string(), // Empty (invalid)
             "valid-id".to_string(),
             "id-with-special-chars-123".to_string(),
-            "very-long-id-".repeat(10),  // Long ID
+            "very-long-id-".repeat(10), // Long ID
         ];
 
         for object_id in object_id_cases {
@@ -1404,7 +1572,10 @@ mod tests {
             } else {
                 // Valid object IDs should be non-empty
                 assert!(!object_id.is_empty(), "Object ID should not be empty");
-                assert!(object_id.len() < 10000, "Object ID should be reasonable length");
+                assert!(
+                    object_id.len() < 10000,
+                    "Object ID should be reasonable length"
+                );
             }
         }
     }
@@ -1419,19 +1590,20 @@ mod tests {
         ];
 
         let invalid_paths = vec![
-            "",  // Empty path
+            "",                   // Empty path
             "relative/path.mp3",  // Relative path (might be invalid)
-            "\\\\invalid\\share",  // Invalid UNC
+            "\\\\invalid\\share", // Invalid UNC
         ];
 
         for path in valid_paths {
             // Valid paths should have drive letter or UNC prefix
             assert!(
-                path.starts_with("C:\\") ||
-                path.starts_with("D:\\") ||
-                path.starts_with("E:\\") ||
-                path.starts_with("\\\\"),
-                "Path should be absolute: {}", path
+                path.starts_with("C:\\")
+                    || path.starts_with("D:\\")
+                    || path.starts_with("E:\\")
+                    || path.starts_with("\\\\"),
+                "Path should be absolute: {}",
+                path
             );
         }
 
@@ -1454,9 +1626,9 @@ mod tests {
         ];
 
         let potentially_invalid_ids = vec![
-            "",  // Empty
+            "",     // Empty
             "   ",  // Whitespace only
-            "\n\t",  // Control characters
+            "\n\t", // Control characters
         ];
 
         for id in valid_ids {
@@ -1465,7 +1637,10 @@ mod tests {
         }
 
         for id in potentially_invalid_ids {
-            assert!(id.trim().is_empty(), "Invalid ID should be empty after trim");
+            assert!(
+                id.trim().is_empty(),
+                "Invalid ID should be empty after trim"
+            );
         }
     }
 
@@ -1477,18 +1652,20 @@ mod tests {
         use std::thread;
 
         // Simulate concurrent operations using mock data
-        let handles: Vec<_> = (0..5).map(|i| {
-            thread::spawn(move || {
-                // Simulate file info retrieval
-                let file_info = FileInfo {
-                    object_id: format!("obj-{}", i),
-                    name: format!("file-{}.mp3", i),
-                    size: 1024 * i as u64,
-                    is_folder: false,
-                };
-                assert_eq!(file_info.object_id, format!("obj-{}", i));
+        let handles: Vec<_> = (0..5)
+            .map(|i| {
+                thread::spawn(move || {
+                    // Simulate file info retrieval
+                    let file_info = FileInfo {
+                        object_id: format!("obj-{}", i),
+                        name: format!("file-{}.mp3", i),
+                        size: 1024 * i as u64,
+                        is_folder: false,
+                    };
+                    assert_eq!(file_info.object_id, format!("obj-{}", i));
+                })
             })
-        }).collect();
+            .collect();
 
         for handle in handles {
             handle.join().unwrap();
@@ -1557,24 +1734,22 @@ mod tests {
         let empty_result: Vec<FileInfo> = vec![];
         assert_eq!(empty_result.len(), 0);
 
-        let single_file_result = vec![
-            FileInfo {
-                object_id: "obj-1".to_string(),
-                name: "file.mp3".to_string(),
-                size: 1024,
-                is_folder: false,
-            }
-        ];
+        let single_file_result = vec![FileInfo {
+            object_id: "obj-1".to_string(),
+            name: "file.mp3".to_string(),
+            size: 1024,
+            is_folder: false,
+        }];
         assert_eq!(single_file_result.len(), 1);
 
-        let multiple_files_result = (0..10).map(|i| {
-            FileInfo {
+        let multiple_files_result = (0..10)
+            .map(|i| FileInfo {
                 object_id: format!("obj-{}", i),
                 name: format!("file-{}.mp3", i),
                 size: 1024 * i as u64,
                 is_folder: false,
-            }
-        }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
         assert_eq!(multiple_files_result.len(), 10);
     }
 
@@ -1627,15 +1802,28 @@ mod tests {
     fn test_device_connection_error_messages() {
         // Test error messages for connection failures
         let connection_errors = vec![
-            ("COM initialization failed", MtpError::ComError("COM initialization failed".to_string())),
-            ("Device not found", MtpError::NotFound("Device not found".to_string())),
-            ("Device open failed", MtpError::DeviceError("Device open failed".to_string())),
+            (
+                "COM initialization failed",
+                MtpError::ComError("COM initialization failed".to_string()),
+            ),
+            (
+                "Device not found",
+                MtpError::NotFound("Device not found".to_string()),
+            ),
+            (
+                "Device open failed",
+                MtpError::DeviceError("Device open failed".to_string()),
+            ),
         ];
 
         for (expected_text, error) in connection_errors {
             let message = error.to_string();
-            assert!(message.contains(expected_text),
-                "Error message should contain '{}': got '{}'", expected_text, message);
+            assert!(
+                message.contains(expected_text),
+                "Error message should contain '{}': got '{}'",
+                expected_text,
+                message
+            );
         }
     }
 
@@ -1648,11 +1836,7 @@ mod tests {
             (Some("folder/subfolder"), "Nested folder"),
         ];
 
-        let object_id_combinations = vec![
-            "simple-id",
-            "id-with-dashes-123",
-            "ID_WITH_UNDERSCORES",
-        ];
+        let object_id_combinations = vec!["simple-id", "id-with-dashes-123", "ID_WITH_UNDERSCORES"];
 
         let path_combinations = vec![
             "C:\\Music\\song.mp3",
@@ -1717,8 +1901,10 @@ mod tests {
         }
 
         for object_id in &valid_object_ids {
-            assert!(!object_id.is_empty() || object_id.len() > 0,
-                "Object ID should be non-empty for meaningful operations");
+            assert!(
+                !object_id.is_empty() || object_id.len() > 0,
+                "Object ID should be non-empty for meaningful operations"
+            );
         }
 
         for path in &valid_paths {
@@ -1741,8 +1927,10 @@ mod tests {
             // We test that error types are properly defined
             let error = MtpError::DeviceError(format!("{}: {}", error_type, description));
             let message = error.to_string();
-            assert!(message.contains(error_type) || message.contains(description),
-                "Error message should contain error information");
+            assert!(
+                message.contains(error_type) || message.contains(description),
+                "Error message should contain error information"
+            );
         }
     }
 
@@ -1764,8 +1952,11 @@ mod tests {
                 }
                 Some(id) => {
                     // Folder ID format is valid (actual existence checked by device)
-                    assert!(!id.is_empty() || id == "",
-                        "{}: Folder ID format valid", description);
+                    assert!(
+                        !id.is_empty() || id == "",
+                        "{}: Folder ID format valid",
+                        description
+                    );
                 }
             }
         }
@@ -1785,9 +1976,17 @@ mod tests {
             // Object ID format validation
             if object_id.is_empty() {
                 // Empty ID is invalid
-                assert_eq!(object_id, "", "{}: Empty ID should be rejected", description);
+                assert_eq!(
+                    object_id, "",
+                    "{}: Empty ID should be rejected",
+                    description
+                );
             } else {
-                assert!(!object_id.is_empty(), "{}: Non-empty ID format valid", description);
+                assert!(
+                    !object_id.is_empty(),
+                    "{}: Non-empty ID format valid",
+                    description
+                );
             }
         }
     }
@@ -1812,7 +2011,11 @@ mod tests {
                 assert!(true, "{}: Valid parameters", description);
             } else {
                 // Invalid parameters would fail at device level
-                assert!(true, "{}: Invalid parameters should be rejected", description);
+                assert!(
+                    true,
+                    "{}: Invalid parameters should be rejected",
+                    description
+                );
             }
         }
     }
@@ -1880,7 +2083,10 @@ mod tests {
             friendly_name: "   ".to_string(),
             manufacturer: "   ".to_string(),
         };
-        assert!(!whitespace_device.device_id.trim().is_empty() || whitespace_device.device_id.trim().is_empty());
+        assert!(
+            !whitespace_device.device_id.trim().is_empty()
+                || whitespace_device.device_id.trim().is_empty()
+        );
 
         let special_chars_device = DeviceInfo {
             device_id: "id:with:colons".to_string(),
@@ -1963,13 +2169,11 @@ mod tests {
         }
 
         // Scenario 1: Success with devices
-        let success_with_devices = EnumerationResult::Success(vec![
-            DeviceInfo {
-                device_id: "dev-1".to_string(),
-                friendly_name: "Device 1".to_string(),
-                manufacturer: "Manufacturer".to_string(),
-            },
-        ]);
+        let success_with_devices = EnumerationResult::Success(vec![DeviceInfo {
+            device_id: "dev-1".to_string(),
+            friendly_name: "Device 1".to_string(),
+            manufacturer: "Manufacturer".to_string(),
+        }]);
         match success_with_devices {
             EnumerationResult::Success(devices) => {
                 assert!(!devices.is_empty(), "Should have devices");
@@ -1987,9 +2191,7 @@ mod tests {
         }
 
         // Scenario 3: Error
-        let error_result = EnumerationResult::Error(
-            MtpError::ComError("COM failed".to_string())
-        );
+        let error_result = EnumerationResult::Error(MtpError::ComError("COM failed".to_string()));
         match error_result {
             EnumerationResult::Error(_) => assert!(true, "Error scenario handled"),
             _ => panic!("Should be error"),
@@ -2000,14 +2202,12 @@ mod tests {
     fn test_file_operations_return_types() {
         // Test that file operations return correct types
         // list_files should return Vec<FileInfo>
-        let mock_files: Vec<FileInfo> = vec![
-            FileInfo {
-                object_id: "obj-1".to_string(),
-                name: "file1.mp3".to_string(),
-                size: 1024,
-                is_folder: false,
-            },
-        ];
+        let mock_files: Vec<FileInfo> = vec![FileInfo {
+            object_id: "obj-1".to_string(),
+            name: "file1.mp3".to_string(),
+            size: 1024,
+            is_folder: false,
+        }];
         assert_eq!(mock_files.len(), 1);
 
         // get_file_info should return FileInfo
@@ -2033,20 +2233,23 @@ mod tests {
         // Simulate concurrent file info requests
         let file_ids = vec!["obj-1", "obj-2", "obj-3", "obj-4", "obj-5"];
 
-        let handles: Vec<_> = file_ids.iter().map(|id| {
-            let id = *id;
-            thread::spawn(move || {
-                // Simulate get_file_info call
-                let mock_info = FileInfo {
-                    object_id: id.to_string(),
-                    name: format!("file_{}.mp3", id),
-                    size: 1024,
-                    is_folder: false,
-                };
-                assert_eq!(mock_info.object_id, id);
-                mock_info
+        let handles: Vec<_> = file_ids
+            .iter()
+            .map(|id| {
+                let id = *id;
+                thread::spawn(move || {
+                    // Simulate get_file_info call
+                    let mock_info = FileInfo {
+                        object_id: id.to_string(),
+                        name: format!("file_{}.mp3", id),
+                        size: 1024,
+                        is_folder: false,
+                    };
+                    assert_eq!(mock_info.object_id, id);
+                    mock_info
+                })
             })
-        }).collect();
+            .collect();
 
         let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         assert_eq!(results.len(), 5);
@@ -2061,8 +2264,8 @@ mod tests {
             ("id:with:colons", true),
             ("id-with-dashes", true),
             ("ID123", true),
-            ("", false),  // Empty is invalid
-            ("   ", false),  // Whitespace only is invalid
+            ("", false),    // Empty is invalid
+            ("   ", false), // Whitespace only is invalid
         ];
 
         for (id, should_be_valid) in device_id_patterns {
@@ -2070,7 +2273,11 @@ mod tests {
             if should_be_valid {
                 assert!(is_non_empty, "Valid ID '{}' should be non-empty", id);
             } else {
-                assert!(!is_non_empty, "Invalid ID '{}' should be empty after trim", id);
+                assert!(
+                    !is_non_empty,
+                    "Invalid ID '{}' should be empty after trim",
+                    id
+                );
             }
         }
     }
@@ -2082,9 +2289,9 @@ mod tests {
             ("C:\\Music\\song.mp3", true),
             ("D:\\Media\\track.mp3", true),
             ("\\\\server\\share\\file.mp3", true),
-            ("", false),  // Empty is invalid
-            ("invalid-path", false),  // No drive letter
-            ("C:relative\\path.mp3", false),  // Relative path
+            ("", false),                     // Empty is invalid
+            ("invalid-path", false),         // No drive letter
+            ("C:relative\\path.mp3", false), // Relative path
         ];
 
         for (path, should_be_valid) in path_patterns {
@@ -2092,11 +2299,17 @@ mod tests {
             let is_non_empty = !path.is_empty();
 
             if should_be_valid {
-                assert!(has_drive_letter && is_non_empty,
-                    "Valid path '{}' should have drive letter and be non-empty", path);
+                assert!(
+                    has_drive_letter && is_non_empty,
+                    "Valid path '{}' should have drive letter and be non-empty",
+                    path
+                );
             } else {
-                assert!(!has_drive_letter || !is_non_empty,
-                    "Invalid path '{}' should be rejected", path);
+                assert!(
+                    !has_drive_letter || !is_non_empty,
+                    "Invalid path '{}' should be rejected",
+                    path
+                );
             }
         }
     }
@@ -2175,15 +2388,15 @@ mod tests {
         ];
 
         // Test finding existing folder
-        let found_folder = mock_files.iter()
-            .find(|f| f.is_folder && f.name == "Music");
+        let found_folder = mock_files.iter().find(|f| f.is_folder && f.name == "Music");
         assert!(found_folder.is_some());
         if let Some(folder) = found_folder {
             assert_eq!(folder.object_id, "obj-1");
         }
 
         // Test not finding non-existent folder
-        let not_found = mock_files.iter()
+        let not_found = mock_files
+            .iter()
             .find(|f| f.is_folder && f.name == "NonExistent");
         assert!(not_found.is_none());
     }
@@ -2206,7 +2419,10 @@ mod tests {
 
         // Test path with multiple slashes
         let multi_slash_path = "Music//Artist//Album";
-        let multi_parts: Vec<&str> = multi_slash_path.split('/').filter(|p| !p.is_empty()).collect();
+        let multi_parts: Vec<&str> = multi_slash_path
+            .split('/')
+            .filter(|p| !p.is_empty())
+            .collect();
         assert_eq!(multi_parts.len(), 3);
     }
 
@@ -2266,14 +2482,20 @@ mod tests {
             ("Music/Artist/Album", 3),
             ("Music", 1),
             ("", 0),
-            ("/Music/", 1),  // Leading/trailing slashes
-            ("Music//Artist", 2),  // Double slash
+            ("/Music/", 1),       // Leading/trailing slashes
+            ("Music//Artist", 2), // Double slash
         ];
 
         for (path, expected_parts) in test_cases {
             let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
-            assert_eq!(parts.len(), expected_parts,
-                "Path '{}' should have {} parts, got {}", path, expected_parts, parts.len());
+            assert_eq!(
+                parts.len(),
+                expected_parts,
+                "Path '{}' should have {} parts, got {}",
+                path,
+                expected_parts,
+                parts.len()
+            );
         }
     }
 }

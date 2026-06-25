@@ -1,17 +1,14 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { installTauriInvokeMock } from '../tauri.testing';
 import { ItunesLibraryService } from './itunes-library.service';
 import { AsyncHandlerService } from './async-handler.service';
 import { Track, Playlist, ITunesLibrary } from '../../shared/models/library.model';
 
-// Mock Tauri API
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn()
-}));
-
 describe('ItunesLibraryService', () => {
   let service: ItunesLibraryService;
+  // Tauri IPC spy used by the service; (re)installed in beforeEach.
+  let invoke: Mock;
 
   const mockTrack: Track = {
     id: '1',
@@ -36,10 +33,11 @@ describe('ItunesLibraryService', () => {
       providers: [ItunesLibraryService, AsyncHandlerService]
     });
 
-    service = TestBed.inject(ItunesLibraryService);
-
-    // Reset mocks
+    // Install the Tauri IPC spy before the service is constructed.
     vi.clearAllMocks();
+    invoke = installTauriInvokeMock();
+
+    service = TestBed.inject(ItunesLibraryService);
   });
 
   describe('Service Initialization', () => {
@@ -66,7 +64,7 @@ describe('ItunesLibraryService', () => {
 
   describe('parseLibrary', () => {
     it('should parse library successfully', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary) // parse_itunes_library
         .mockResolvedValueOnce([mockPlaylist]) // get_playlists
         .mockResolvedValueOnce([mockTrack]); // get_tracks
@@ -86,7 +84,7 @@ describe('ItunesLibraryService', () => {
     });
 
     it('should load mock library on error', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Parse failed'));
+      invoke.mockRejectedValue(new Error('Parse failed'));
 
       await service.parseLibrary('<xml>content</xml>', 'test.xml');
 
@@ -98,7 +96,7 @@ describe('ItunesLibraryService', () => {
 
   describe('clearLibrary', () => {
     beforeEach(async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -124,7 +122,7 @@ describe('ItunesLibraryService', () => {
     });
 
     it('should return playlists when library loaded', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -143,7 +141,7 @@ describe('ItunesLibraryService', () => {
     });
 
     it('should return tracks when library loaded', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -162,7 +160,7 @@ describe('ItunesLibraryService', () => {
     });
 
     it('should return track when found', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -173,7 +171,7 @@ describe('ItunesLibraryService', () => {
     });
 
     it('should return null when track not found', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -190,7 +188,7 @@ describe('ItunesLibraryService', () => {
     });
 
     it('should return playlist when found', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -203,7 +201,7 @@ describe('ItunesLibraryService', () => {
 
   describe('togglePlaylistSelection', () => {
     beforeEach(async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -237,7 +235,7 @@ describe('ItunesLibraryService', () => {
         { name: 'Playlist 2', tracks: [], trackCount: 0 },
         { name: 'Playlist 3', tracks: [], trackCount: 0 }
       ];
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce(multiplePlaylists)
         .mockResolvedValueOnce([mockTrack]);
@@ -253,7 +251,7 @@ describe('ItunesLibraryService', () => {
 
   describe('deselectAllPlaylists', () => {
     beforeEach(async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -276,7 +274,7 @@ describe('ItunesLibraryService', () => {
     });
 
     it('should return count of selected playlists', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -294,7 +292,7 @@ describe('ItunesLibraryService', () => {
     });
 
     it('should return true when loaded', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);
@@ -307,7 +305,7 @@ describe('ItunesLibraryService', () => {
 
   describe('getLibraryState', () => {
     it('should return library state', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(mockLibrary)
         .mockResolvedValueOnce([mockPlaylist])
         .mockResolvedValueOnce([mockTrack]);

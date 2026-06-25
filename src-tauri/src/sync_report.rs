@@ -1,5 +1,9 @@
-use serde::Serialize;
+// The sync report types are consumed only by the Windows-only sync command, so
+// they read as dead code when building for other targets.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use crate::errors::SyncError;
+use serde::Serialize;
 
 /// Detailed error information for a single operation
 #[derive(Debug, Clone, Serialize)]
@@ -79,25 +83,27 @@ impl SyncReport {
         self.total_operations = total;
 
         if self.failed_operations == 0 && self.skipped_operations == 0 {
-            self.message = format!("Successfully synced {} operation(s)", self.successful_operations);
+            self.message = format!(
+                "Successfully synced {} operation(s)",
+                self.successful_operations
+            );
         } else if self.failed_operations == 0 {
             self.message = format!(
                 "Synced {} operation(s), skipped {} operation(s)",
-                self.successful_operations,
-                self.skipped_operations
+                self.successful_operations, self.skipped_operations
             );
         } else {
             self.message = format!(
                 "Synced {} operation(s), failed {} operation(s), skipped {} operation(s)",
-                self.successful_operations,
-                self.failed_operations,
-                self.skipped_operations
+                self.successful_operations, self.failed_operations, self.skipped_operations
             );
         }
     }
 
+    #[allow(dead_code)] // Public report helper retained for callers/tests; not yet wired into the sync flow.
     pub fn errors_by_category(&self) -> std::collections::HashMap<String, usize> {
-        let mut categories: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut categories: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for error in &self.errors {
             *categories.entry(error.category.clone()).or_insert(0) += 1;
         }
@@ -156,4 +162,3 @@ mod tests {
         assert!(!report.message.is_empty());
     }
 }
-

@@ -1,6 +1,10 @@
-use std::time::Duration;
-use std::thread;
+// The retry utilities are consumed only by the Windows-only sync command, so
+// they read as dead code when building for other targets.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use crate::errors::SyncError;
+use std::thread;
+use std::time::Duration;
 
 /// Retry configuration
 #[derive(Debug, Clone)]
@@ -27,6 +31,7 @@ impl Default for RetryConfig {
 pub struct RetryResult<T> {
     pub result: Result<T, SyncError>,
     pub attempts: u32,
+    #[allow(dead_code)] // Populated for reporting; not currently read by callers.
     pub total_duration_ms: u64,
 }
 
@@ -48,11 +53,10 @@ where
         match func() {
             Ok(value) => {
                 if attempt > 1 {
-                eprintln!(
-                    "Operation '{}' succeeded after {} attempt(s)",
-                    operation_name,
-                    attempt
-                );
+                    eprintln!(
+                        "Operation '{}' succeeded after {} attempt(s)",
+                        operation_name, attempt
+                    );
                 }
                 return RetryResult {
                     result: Ok(value),
@@ -68,11 +72,11 @@ where
 
                 // Check if error is retryable
                 if !e.is_retryable() {
-                eprintln!(
-                    "WARNING: Operation '{}' failed with non-retryable error: {}",
-                    operation_name,
-                    e.message()
-                );
+                    eprintln!(
+                        "WARNING: Operation '{}' failed with non-retryable error: {}",
+                        operation_name,
+                        e.message()
+                    );
                     return RetryResult {
                         result: Err(e),
                         attempts: attempt,
@@ -82,12 +86,12 @@ where
 
                 // If this is the last attempt, return the error
                 if attempt >= config.max_attempts {
-                eprintln!(
-                    "ERROR: Operation '{}' failed after {} attempts: {}",
-                    operation_name,
-                    attempt,
-                    e.message()
-                );
+                    eprintln!(
+                        "ERROR: Operation '{}' failed after {} attempts: {}",
+                        operation_name,
+                        attempt,
+                        e.message()
+                    );
                     return RetryResult {
                         result: Err(e),
                         attempts: attempt,
@@ -115,7 +119,10 @@ where
     // Should not reach here, but handle it gracefully
     RetryResult {
         result: Err(last_error.unwrap_or_else(|| {
-            SyncError::Custom(format!("Operation '{}' failed after {} attempts", operation_name, config.max_attempts))
+            SyncError::Custom(format!(
+                "Operation '{}' failed after {} attempts",
+                operation_name, config.max_attempts
+            ))
         })),
         attempts: config.max_attempts,
         total_duration_ms: total_duration,
@@ -124,7 +131,8 @@ where
 
 /// Calculate exponential backoff delay
 fn calculate_delay(attempt: u32, config: &RetryConfig) -> u64 {
-    let delay = (config.initial_delay_ms as f64) * (config.backoff_multiplier.powi((attempt as i32) - 2)).max(1.0);
+    let delay = (config.initial_delay_ms as f64)
+        * (config.backoff_multiplier.powi((attempt as i32) - 2)).max(1.0);
     delay.min(config.max_delay_ms as f64) as u64
 }
 
@@ -255,4 +263,3 @@ mod tests {
         assert_eq!(calculate_delay(5, &config_max), 200);
     }
 }
-

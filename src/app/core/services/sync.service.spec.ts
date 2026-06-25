@@ -1,16 +1,13 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
+import { describe, it, expect, beforeEach, vi, afterEach, type Mock } from 'vitest';
+import { installTauriInvokeMock } from '../tauri.testing';
 import { SyncService } from './sync.service';
 import { Playlist } from '../../shared/models/library.model';
 
-// Mock Tauri API
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn()
-}));
-
 describe('SyncService', () => {
   let service: SyncService;
+  // Tauri IPC spy used by the service; (re)installed in beforeEach.
+  let invoke: Mock;
 
   const mockPlaylist1: Playlist = {
     name: 'Playlist 1',
@@ -24,13 +21,30 @@ describe('SyncService', () => {
     trackCount: 1
   };
 
+  // `sync_playlist_to_device` returns a JSON-encoded SyncReport. Tests drive the
+  // mock with this helper so the service's report parsing succeeds.
+  const successReportJson = JSON.stringify({
+    success: true,
+    totalOperations: 1,
+    successfulOperations: 1,
+    failedOperations: 0,
+    skippedOperations: 0,
+    errors: [],
+    warnings: [],
+    durationMs: 1,
+    message: 'Sync completed'
+  });
+
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [SyncService]
     });
 
-    service = TestBed.inject(SyncService);
+    // Install the Tauri IPC spy before the service is constructed.
     vi.clearAllMocks();
+    invoke = installTauriInvokeMock();
+
+    service = TestBed.inject(SyncService);
     vi.useFakeTimers();
   });
 
@@ -67,9 +81,11 @@ describe('SyncService', () => {
     });
 
     it('should sync single playlist successfully', async () => {
-      vi.mocked(invoke).mockResolvedValue('Sync completed');
+      invoke.mockResolvedValue(successReportJson);
 
-      const result = await service.startSync([mockPlaylist1], 'Music');
+      const syncPromise = service.startSync([mockPlaylist1], 'Music');
+      await vi.runAllTimersAsync();
+      const result = await syncPromise;
 
       expect(invoke).toHaveBeenCalledWith('sync_playlist_to_device', {
         playlistName: 'Playlist 1',
@@ -81,9 +97,11 @@ describe('SyncService', () => {
     });
 
     it('should sync multiple playlists successfully', async () => {
-      vi.mocked(invoke).mockResolvedValue('Sync completed');
+      invoke.mockResolvedValue(successReportJson);
 
-      const result = await service.startSync([mockPlaylist1, mockPlaylist2], 'Music');
+      const syncPromise = service.startSync([mockPlaylist1, mockPlaylist2], 'Music');
+      await vi.runAllTimersAsync();
+      const result = await syncPromise;
 
       expect(invoke).toHaveBeenCalledTimes(2);
       expect(result.success).toBe(true);
@@ -91,9 +109,11 @@ describe('SyncService', () => {
     });
 
     it('should handle errors during sync', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Sync failed'));
+      invoke.mockRejectedValue(new Error('Sync failed'));
 
-      const result = await service.startSync([mockPlaylist1], 'Music');
+      const syncPromise = service.startSync([mockPlaylist1], 'Music');
+      await vi.runAllTimersAsync();
+      const result = await syncPromise;
 
       expect(result.success).toBe(false);
       expect(result.errors.length).toBeGreaterThan(0);
@@ -101,11 +121,13 @@ describe('SyncService', () => {
     });
 
     it('should handle partial failures', async () => {
-      vi.mocked(invoke)
-        .mockResolvedValueOnce('Sync completed') // First playlist succeeds
+      invoke
+        .mockResolvedValueOnce(successReportJson) // First playlist succeeds
         .mockRejectedValueOnce(new Error('Sync failed')); // Second playlist fails
 
-      const result = await service.startSync([mockPlaylist1, mockPlaylist2], 'Music');
+      const syncPromise = service.startSync([mockPlaylist1, mockPlaylist2], 'Music');
+      await vi.runAllTimersAsync();
+      const result = await syncPromise;
 
       expect(result.success).toBe(false);
       expect(result.syncedPlaylists.length).toBe(1);
@@ -113,13 +135,13 @@ describe('SyncService', () => {
     });
 
     it('should update progress during sync', async () => {
-      vi.mocked(invoke).mockResolvedValue('Sync completed');
+      invoke.mockResolvedValue(successReportJson);
 
       const syncPromise = service.startSync([mockPlaylist1, mockPlaylist2], 'Music');
 
-      // Fast-forward timers to complete delays
-      await vi.runAllTimersAsync();
-
+      // Advance only the per-playlist delays (2 x 500ms) so the sync resolves
+      // without firing the 3s progress-reset timer scheduled afterwards.
+      await vi.advanceTimersByTimeAsync(2 * 500);
       await syncPromise;
 
       expect(service.syncProgress().completedPlaylists).toBe(2);
@@ -128,9 +150,11 @@ describe('SyncService', () => {
     });
 
     it('should use default folder when not specified', async () => {
-      vi.mocked(invoke).mockResolvedValue('Sync completed');
+      invoke.mockResolvedValue(successReportJson);
 
-      await service.startSync([mockPlaylist1]);
+      const syncPromise = service.startSync([mockPlaylist1]);
+      await vi.runAllTimersAsync();
+      await syncPromise;
 
       expect(invoke).toHaveBeenCalledWith('sync_playlist_to_device', {
         playlistName: 'Playlist 1',
@@ -142,7 +166,7 @@ describe('SyncService', () => {
   describe('cancelSync', () => {
     it('should cancel active sync', () => {
       // Start a sync (don't await to keep it active)
-      vi.mocked(invoke).mockImplementation(() => new Promise(() => {
+      invoke.mockImplementation(() => new Promise(() => {
         // Never resolves - intentionally empty
       }));
       service.startSync([mockPlaylist1], 'Music');
@@ -150,7 +174,7 @@ describe('SyncService', () => {
       service.cancelSync();
 
       expect(service.isActive()).toBe(false);
-      expect(service.getSyncStatus()).toContain('cancelled');
+      expect(service.getSyncProgress().status).toContain('cancelled');
     });
   });
 
@@ -160,7 +184,7 @@ describe('SyncService', () => {
     });
 
     it('should return true when sync is active', async () => {
-      vi.mocked(invoke).mockImplementation(() => new Promise(() => {
+      invoke.mockImplementation(() => new Promise(() => {
         // Never resolves - intentionally empty
       }));
       service.startSync([mockPlaylist1], 'Music');
@@ -179,10 +203,12 @@ describe('SyncService', () => {
     });
 
     it('should return progress during sync', async () => {
-      vi.mocked(invoke).mockResolvedValue('Sync completed');
+      invoke.mockResolvedValue(successReportJson);
       const syncPromise = service.startSync([mockPlaylist1], 'Music');
 
-      await vi.runAllTimersAsync();
+      // Advance only the single per-playlist delay so the reset timer (3s) does
+      // not fire and zero the progress before we assert.
+      await vi.advanceTimersByTimeAsync(500);
       await syncPromise;
 
       const progress = service.getSyncProgress();
@@ -198,9 +224,10 @@ describe('SyncService', () => {
     });
 
     it('should return last sync result', async () => {
-      vi.mocked(invoke).mockResolvedValue('Sync completed');
+      invoke.mockResolvedValue(successReportJson);
+      const syncPromise = service.startSync([mockPlaylist1], 'Music');
       await vi.runAllTimersAsync();
-      const result = await service.startSync([mockPlaylist1], 'Music');
+      const result = await syncPromise;
 
       expect(service.getLastSyncResult()).toEqual(result);
     });
@@ -208,9 +235,10 @@ describe('SyncService', () => {
 
   describe('clearSyncResult', () => {
     it('should clear sync result', async () => {
-      vi.mocked(invoke).mockResolvedValue('Sync completed');
+      invoke.mockResolvedValue(successReportJson);
+      const syncPromise = service.startSync([mockPlaylist1], 'Music');
       await vi.runAllTimersAsync();
-      await service.startSync([mockPlaylist1], 'Music');
+      await syncPromise;
 
       service.clearSyncResult();
 
@@ -224,7 +252,7 @@ describe('SyncService', () => {
     });
 
     it('should return status with playlist name during sync', async () => {
-      vi.mocked(invoke).mockImplementation(() => new Promise(() => {
+      invoke.mockImplementation(() => new Promise(() => {
         // Never resolves - intentionally empty
       }));
       service.startSync([mockPlaylist1], 'Music');
@@ -237,11 +265,11 @@ describe('SyncService', () => {
 
   describe('Computed Signals', () => {
     it('should compute percentage correctly', async () => {
-      vi.clearAllMocks();
-      vi.mocked(invoke).mockResolvedValue('Sync completed');
+      invoke.mockResolvedValue(successReportJson);
 
       const syncPromise = service.startSync([mockPlaylist1, mockPlaylist2], 'Music');
-      await vi.runAllTimersAsync();
+      // Advance only the per-playlist delays (2 x 500ms); leave the 3s reset.
+      await vi.advanceTimersByTimeAsync(2 * 500);
       await syncPromise;
 
       expect(service.percentage()).toBe(100);

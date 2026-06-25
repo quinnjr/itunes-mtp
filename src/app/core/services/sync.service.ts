@@ -1,5 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../tauri';
 import { SyncProgress, SyncResult, SyncReport } from '../../shared/models/sync.model';
 import { Playlist } from '../../shared/models/library.model';
 

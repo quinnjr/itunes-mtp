@@ -68,6 +68,10 @@ export class AsyncHandlerService {
       console.error('Async operation failed:', error);
 
       return null;
+    } finally {
+      // Always clear the loading flag once the operation settles, regardless of
+      // whether the caller's setData/setError handlers reset it themselves.
+      handlers.setLoading(false);
     }
   }
 

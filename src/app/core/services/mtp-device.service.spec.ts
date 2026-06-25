@@ -1,17 +1,14 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { installTauriInvokeMock } from '../tauri.testing';
 import { MtpDeviceService } from './mtp-device.service';
 import { AsyncHandlerService } from './async-handler.service';
 import { DeviceInfo, FileInfo } from '../../shared/models/device.model';
 
-// Mock Tauri API
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn()
-}));
-
 describe('MtpDeviceService', () => {
   let service: MtpDeviceService;
+  // Tauri IPC spy used by the service; (re)installed in beforeEach.
+  let invoke: Mock;
 
   const mockDevice: DeviceInfo = {
     device_id: 'test-device-123',
@@ -38,11 +35,13 @@ describe('MtpDeviceService', () => {
       providers: [MtpDeviceService, AsyncHandlerService]
     });
 
-    service = TestBed.inject(MtpDeviceService);
-
-    // Reset mocks
+    // Install the Tauri IPC spy before the service is constructed, since the
+    // service issues an `invoke` call from its constructor (refreshDevices).
     vi.clearAllMocks();
-    vi.mocked(invoke).mockResolvedValue([]);
+    invoke = installTauriInvokeMock();
+    invoke.mockResolvedValue([]);
+
+    service = TestBed.inject(MtpDeviceService);
   });
 
   describe('Service Initialization', () => {
@@ -63,7 +62,11 @@ describe('MtpDeviceService', () => {
       expect(service.error()).toBeNull();
     });
 
-    it('should initialize with not loading', () => {
+    it('should initialize with not loading', async () => {
+      // The constructor kicks off a fire-and-forget refreshDevices(); drive a
+      // settled refresh so the transient loading state clears before asserting.
+      invoke.mockResolvedValue([]);
+      await service.refreshDevices();
       expect(service.isLoading()).toBe(false);
     });
   });
@@ -71,7 +74,7 @@ describe('MtpDeviceService', () => {
   describe('refreshDevices', () => {
     it('should load devices successfully', async () => {
       const mockDevices: DeviceInfo[] = [mockDevice];
-      vi.mocked(invoke).mockResolvedValue(mockDevices);
+      invoke.mockResolvedValue(mockDevices);
 
       await service.refreshDevices();
 
@@ -81,7 +84,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle empty device list', async () => {
-      vi.mocked(invoke).mockResolvedValue([]);
+      invoke.mockResolvedValue([]);
 
       await service.refreshDevices();
 
@@ -90,7 +93,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle errors when loading devices', async () => {
       const errorMessage = 'Failed to get devices';
-      vi.mocked(invoke).mockRejectedValue(new Error(errorMessage));
+      invoke.mockRejectedValue(new Error(errorMessage));
 
       await service.refreshDevices();
 
@@ -101,7 +104,7 @@ describe('MtpDeviceService', () => {
 
   describe('connectToDevice', () => {
     beforeEach(() => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
     });
 
     it('should connect to device successfully', async () => {
@@ -116,8 +119,8 @@ describe('MtpDeviceService', () => {
 
     it('should load device files after connection', async () => {
       const loadFilesSpy = vi.spyOn(service, 'loadDeviceFiles');
-      vi.mocked(invoke).mockResolvedValueOnce(undefined); // connect_device
-      vi.mocked(invoke).mockResolvedValueOnce([]); // list_device_files
+      invoke.mockResolvedValueOnce(undefined); // connect_device
+      invoke.mockResolvedValueOnce([]); // list_device_files
 
       await service.connectToDevice(mockDevice);
 
@@ -126,7 +129,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle connection errors', async () => {
       const errorMessage = 'Connection failed';
-      vi.mocked(invoke).mockRejectedValue(new Error(errorMessage));
+      invoke.mockRejectedValue(new Error(errorMessage));
 
       await service.connectToDevice(mockDevice);
 
@@ -137,7 +140,7 @@ describe('MtpDeviceService', () => {
 
   describe('disconnectDevice', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
     });
 
@@ -151,7 +154,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle disconnect errors gracefully', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Disconnect failed'));
+      invoke.mockRejectedValue(new Error('Disconnect failed'));
 
       await service.disconnectDevice();
 
@@ -162,13 +165,13 @@ describe('MtpDeviceService', () => {
 
   describe('loadDeviceFiles', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
     });
 
     it('should load files successfully', async () => {
       const mockFiles: FileInfo[] = [mockFile, mockFolder];
-      vi.mocked(invoke).mockResolvedValue(mockFiles);
+      invoke.mockResolvedValue(mockFiles);
 
       await service.loadDeviceFiles();
 
@@ -179,7 +182,7 @@ describe('MtpDeviceService', () => {
     it('should load files from specific folder', async () => {
       const folderId = 'folder-123';
       const mockFiles: FileInfo[] = [mockFile];
-      vi.mocked(invoke).mockResolvedValue(mockFiles);
+      invoke.mockResolvedValue(mockFiles);
 
       await service.loadDeviceFiles(folderId);
 
@@ -189,6 +192,9 @@ describe('MtpDeviceService', () => {
 
     it('should not load files if no device connected', async () => {
       await service.disconnectDevice();
+      // Ignore any list_device_files calls made while connecting in beforeEach;
+      // we only care that loadDeviceFiles makes none once disconnected.
+      invoke.mockClear();
 
       await service.loadDeviceFiles();
 
@@ -196,7 +202,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle errors when loading files', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Failed to load files'));
+      invoke.mockRejectedValue(new Error('Failed to load files'));
 
       await service.loadDeviceFiles();
 
@@ -206,13 +212,13 @@ describe('MtpDeviceService', () => {
 
   describe('browseFolder', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
     });
 
     it('should browse into folder', async () => {
       const loadFilesSpy = vi.spyOn(service, 'loadDeviceFiles');
-      vi.mocked(invoke).mockResolvedValue([]);
+      invoke.mockResolvedValue([]);
 
       await service.browseFolder(mockFolder);
 
@@ -230,23 +236,23 @@ describe('MtpDeviceService', () => {
 
   describe('goUpFolder', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
     });
 
     it('should go up one folder level', async () => {
       const loadFilesSpy = vi.spyOn(service, 'loadDeviceFiles');
-      vi.mocked(invoke).mockResolvedValue([]);
+      invoke.mockResolvedValue([]);
 
       await service.goUpFolder();
 
-      expect(loadFilesSpy).toHaveBeenCalledWith(undefined);
+      expect(loadFilesSpy).toHaveBeenCalledWith();
     });
   });
 
   describe('getFileInfo', () => {
     it('should get file info successfully', async () => {
-      vi.mocked(invoke).mockResolvedValue(mockFile);
+      invoke.mockResolvedValue(mockFile);
 
       const result = await service.getFileInfo('file-123');
 
@@ -255,7 +261,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should return null on error', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('File not found'));
+      invoke.mockRejectedValue(new Error('File not found'));
 
       const result = await service.getFileInfo('invalid-id');
 
@@ -265,7 +271,7 @@ describe('MtpDeviceService', () => {
 
   describe('transferFile', () => {
     it('should transfer file successfully', async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
 
       const result = await service.transferFile('file-123', 'C:\\dest\\file.mp3');
 
@@ -277,7 +283,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should return false on error', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Transfer failed'));
+      invoke.mockRejectedValue(new Error('Transfer failed'));
 
       const result = await service.transferFile('file-123', 'C:\\dest\\file.mp3');
 
@@ -287,13 +293,13 @@ describe('MtpDeviceService', () => {
 
   describe('createFolder', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
     });
 
     it('should create folder successfully', async () => {
       const folderId = 'new-folder-123';
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(folderId) // create_folder
         .mockResolvedValueOnce([]); // loadDeviceFiles
 
@@ -309,7 +315,7 @@ describe('MtpDeviceService', () => {
     it('should refresh device files after folder creation', async () => {
       const folderId = 'new-folder-123';
       const loadFilesSpy = vi.spyOn(service, 'loadDeviceFiles');
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(folderId)
         .mockResolvedValueOnce([]);
 
@@ -327,7 +333,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle errors', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Failed to create folder'));
+      invoke.mockRejectedValue(new Error('Failed to create folder'));
 
       await expect(
         service.createFolder('parent-123', 'NewFolder')
@@ -336,7 +342,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle empty parent ID', async () => {
       const folderId = 'new-folder-123';
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(folderId)
         .mockResolvedValueOnce([]);
 
@@ -350,7 +356,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle special characters in folder name', async () => {
       const folderId = 'special-folder-123';
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(folderId)
         .mockResolvedValueOnce([]);
 
@@ -365,13 +371,13 @@ describe('MtpDeviceService', () => {
 
   describe('ensureFolderPath', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
     });
 
     it('should ensure folder path successfully', async () => {
       const folderId = 'final-folder-123';
-      vi.mocked(invoke).mockResolvedValue(folderId);
+      invoke.mockResolvedValue(folderId);
 
       const result = await service.ensureFolderPath('base-123', 'Music/Artist/Album');
 
@@ -384,7 +390,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle single-level path', async () => {
       const folderId = 'music-folder-123';
-      vi.mocked(invoke).mockResolvedValue(folderId);
+      invoke.mockResolvedValue(folderId);
 
       const result = await service.ensureFolderPath('base-123', 'Music');
 
@@ -397,7 +403,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle nested paths', async () => {
       const folderId = 'deep-folder-123';
-      vi.mocked(invoke).mockResolvedValue(folderId);
+      invoke.mockResolvedValue(folderId);
 
       const result = await service.ensureFolderPath('base-123', 'Music/Artist/Album/Year');
 
@@ -417,7 +423,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle errors', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Path creation failed'));
+      invoke.mockRejectedValue(new Error('Path creation failed'));
 
       await expect(
         service.ensureFolderPath('base-123', 'Music/Artist')
@@ -426,7 +432,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle empty path', async () => {
       const baseId = 'base-123';
-      vi.mocked(invoke).mockResolvedValue(baseId);
+      invoke.mockResolvedValue(baseId);
 
       const result = await service.ensureFolderPath(baseId, '');
 
@@ -440,13 +446,17 @@ describe('MtpDeviceService', () => {
 
   describe('getOrCreateMusicFolder', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
+      // connectToDevice triggers a fire-and-forget loadDeviceFiles(); let it
+      // settle and reset call history so per-test call counts are accurate.
+      await Promise.resolve();
+      invoke.mockClear();
     });
 
     it('should get or create Music folder successfully', async () => {
       const musicFolderId = 'music-folder-123';
-      vi.mocked(invoke).mockResolvedValue(musicFolderId);
+      invoke.mockResolvedValue(musicFolderId);
 
       const result = await service.getOrCreateMusicFolder();
 
@@ -456,7 +466,7 @@ describe('MtpDeviceService', () => {
 
     it('should return existing Music folder if already exists', async () => {
       const existingFolderId = 'existing-music-123';
-      vi.mocked(invoke).mockResolvedValue(existingFolderId);
+      invoke.mockResolvedValue(existingFolderId);
 
       const result1 = await service.getOrCreateMusicFolder();
       const result2 = await service.getOrCreateMusicFolder();
@@ -475,7 +485,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle errors', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Music folder creation failed'));
+      invoke.mockRejectedValue(new Error('Music folder creation failed'));
 
       await expect(
         service.getOrCreateMusicFolder()
@@ -485,13 +495,17 @@ describe('MtpDeviceService', () => {
 
   describe('uploadFile', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
+      // Let connectToDevice's fire-and-forget loadDeviceFiles() settle, then
+      // reset call history so queued mockResolvedValueOnce sequences are clean.
+      await Promise.resolve();
+      invoke.mockClear();
     });
 
     it('should upload file successfully', async () => {
       const objectId = 'uploaded-file-123';
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(objectId) // upload_file
         .mockResolvedValueOnce([]); // loadDeviceFiles
 
@@ -512,7 +526,7 @@ describe('MtpDeviceService', () => {
     it('should refresh device files after upload', async () => {
       const objectId = 'uploaded-file-123';
       const loadFilesSpy = vi.spyOn(service, 'loadDeviceFiles');
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(objectId)
         .mockResolvedValueOnce([]);
 
@@ -530,7 +544,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle upload errors', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Upload failed'));
+      invoke.mockRejectedValue(new Error('Upload failed'));
 
       await expect(
         service.uploadFile('C:\\song.mp3', 'parent-123', 'song.mp3')
@@ -539,7 +553,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle different file paths', async () => {
       const objectId = 'uploaded-file-123';
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(objectId)
         .mockResolvedValueOnce([]);
 
@@ -552,7 +566,7 @@ describe('MtpDeviceService', () => {
       });
 
       // Different drive
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(objectId)
         .mockResolvedValueOnce([]);
       await service.uploadFile('D:\\Music\\song.mp3', 'parent-123', 'song.mp3');
@@ -565,7 +579,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle different file types', async () => {
       const objectId = 'uploaded-file-123';
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(objectId)
         .mockResolvedValueOnce([]);
 
@@ -573,7 +587,7 @@ describe('MtpDeviceService', () => {
       await service.uploadFile('C:\\song.mp3', 'parent-123', 'song.mp3');
 
       // Image file
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(objectId)
         .mockResolvedValueOnce([]);
       await service.uploadFile('C:\\cover.jpg', 'parent-123', 'cover.jpg');
@@ -582,7 +596,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle empty file name', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Invalid file name'));
+      invoke.mockRejectedValue(new Error('Invalid file name'));
 
       await expect(
         service.uploadFile('C:\\song.mp3', 'parent-123', '')
@@ -591,7 +605,7 @@ describe('MtpDeviceService', () => {
 
     it('should handle loadDeviceFiles error gracefully', async () => {
       const objectId = 'uploaded-file-123';
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce(objectId) // upload succeeds
         .mockRejectedValueOnce(new Error('Failed to load files')); // loadDeviceFiles fails
 
@@ -607,7 +621,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should return active device when connected', async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
 
       expect(service.getActiveDevice()).toEqual(mockDevice);
@@ -621,7 +635,7 @@ describe('MtpDeviceService', () => {
 
     it('should return error message when error exists', async () => {
       const errorMessage = 'Test error';
-      vi.mocked(invoke).mockRejectedValue(new Error(errorMessage));
+      invoke.mockRejectedValue(new Error(errorMessage));
 
       await service.refreshDevices();
 
@@ -631,7 +645,7 @@ describe('MtpDeviceService', () => {
 
   describe('Computed Signals', () => {
     it('should compute connectionState correctly', async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
 
       expect(service.connectionState().isConnected).toBe(false);
 
@@ -643,7 +657,7 @@ describe('MtpDeviceService', () => {
 
     it('should update connectionState on error', async () => {
       const errorMessage = 'Connection error';
-      vi.mocked(invoke).mockRejectedValue(new Error(errorMessage));
+      invoke.mockRejectedValue(new Error(errorMessage));
 
       await service.connectToDevice(mockDevice);
 
@@ -653,12 +667,16 @@ describe('MtpDeviceService', () => {
 
   describe('Edge Cases and Integration', () => {
     beforeEach(async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined);
+      invoke.mockResolvedValue(undefined);
       await service.connectToDevice(mockDevice);
+      // Let connectToDevice's fire-and-forget loadDeviceFiles() settle, then
+      // reset call history so queued mockResolvedValueOnce sequences are clean.
+      await Promise.resolve();
+      invoke.mockClear();
     });
 
     it('should handle multiple folder creations in sequence', async () => {
-      vi.mocked(invoke)
+      invoke
         .mockResolvedValueOnce('folder-1')
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce('folder-2')
@@ -673,12 +691,11 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle folder creation and file upload workflow', async () => {
-      vi.mocked(invoke)
-        .mockResolvedValueOnce('music-folder-123')
-        .mockResolvedValueOnce('artist-folder-123')
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce('uploaded-file-123')
-        .mockResolvedValueOnce([]);
+      invoke
+        .mockResolvedValueOnce('music-folder-123') // get_or_create_music_folder
+        .mockResolvedValueOnce('artist-folder-123') // ensure_folder_path
+        .mockResolvedValueOnce('uploaded-file-123') // upload_file
+        .mockResolvedValueOnce([]); // list_device_files (refresh after upload)
 
       const musicFolder = await service.getOrCreateMusicFolder();
       const artistFolder = await service.ensureFolderPath(musicFolder, 'Artist Name');
@@ -690,7 +707,7 @@ describe('MtpDeviceService', () => {
     });
 
     it('should handle connection loss during operation', async () => {
-      vi.mocked(invoke).mockResolvedValueOnce(undefined); // connect
+      invoke.mockResolvedValueOnce(undefined); // connect
 
       // Simulate connection loss
       vi.spyOn(service, 'isConnected').mockReturnValue(false);
@@ -702,7 +719,7 @@ describe('MtpDeviceService', () => {
 
     it('should maintain state consistency after errors', async () => {
       const initialDeviceCount = service.devices().length;
-      vi.mocked(invoke).mockRejectedValue(new Error('Operation failed'));
+      invoke.mockRejectedValue(new Error('Operation failed'));
 
       try {
         await service.refreshDevices();
