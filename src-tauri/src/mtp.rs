@@ -34,6 +34,7 @@ use std::{
     error::Error,
     fmt,
     io::{Read, Write},
+    mem::ManuallyDrop,
     result::Result,
     sync::{Arc, Mutex},
 };
@@ -115,7 +116,11 @@ pub struct StorageInfo {
 // MTP Device Manager
 #[cfg(windows)]
 pub struct MtpDeviceManager {
-    device_manager: IPortableDeviceManager,
+    // Wrapped in ManuallyDrop so the COM interface is explicitly released in
+    // `Drop` *before* CoUninitialize() is called. Releasing a COM interface
+    // after CoUninitialize() on the same thread is undefined behaviour and
+    // caused intermittent STATUS_ACCESS_VIOLATION crashes in the test harness.
+    device_manager: ManuallyDrop<IPortableDeviceManager>,
     _com_initialized: bool,
 }
 
@@ -125,7 +130,11 @@ impl MtpDeviceManager {
         unsafe {
             // Initialize COM
             let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
-            let com_initialized = hr.is_ok() || hr == RPC_E_CHANGED_MODE;
+            // Only balance CoUninitialize() when this call actually initialized
+            // COM (S_OK / S_FALSE). RPC_E_CHANGED_MODE means COM was already
+            // initialized with a different apartment model and our call did NOT
+            // add a reference, so we must NOT call CoUninitialize() for it.
+            let com_initialized = hr.is_ok();
 
             // Create device manager instance
             let device_manager: IPortableDeviceManager = CoCreateInstance(
@@ -136,7 +145,7 @@ impl MtpDeviceManager {
             .map_err(|e| MtpError::ComError(format!("Failed to create device manager: {}", e)))?;
 
             Ok(Self {
-                device_manager,
+                device_manager: ManuallyDrop::new(device_manager),
                 _com_initialized: com_initialized,
             })
         }
@@ -219,8 +228,11 @@ impl MtpDeviceManager {
 #[cfg(windows)]
 impl Drop for MtpDeviceManager {
     fn drop(&mut self) {
-        if self._com_initialized {
-            unsafe {
+        unsafe {
+            // Release the COM interface before uninitializing COM on this thread.
+            ManuallyDrop::drop(&mut self.device_manager);
+
+            if self._com_initialized {
                 CoUninitialize();
             }
         }
@@ -235,8 +247,10 @@ unsafe impl Sync for MtpDeviceManager {}
 // MTP Device
 #[cfg(windows)]
 pub struct MtpDevice {
-    device: IPortableDevice,
-    content: IPortableDeviceContent,
+    // Wrapped in ManuallyDrop so these COM interfaces are explicitly released
+    // in `Drop` *before* CoUninitialize() is called (see MtpDeviceManager).
+    device: ManuallyDrop<IPortableDevice>,
+    content: ManuallyDrop<IPortableDeviceContent>,
     device_id: String,
     _com_initialized: bool,
 }
@@ -247,7 +261,11 @@ impl MtpDevice {
         unsafe {
             // Initialize COM
             let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
-            let com_initialized = hr.is_ok() || hr == RPC_E_CHANGED_MODE;
+            // Only balance CoUninitialize() when this call actually initialized
+            // COM (S_OK / S_FALSE). RPC_E_CHANGED_MODE means COM was already
+            // initialized with a different apartment model and our call did NOT
+            // add a reference, so we must NOT call CoUninitialize() for it.
+            let com_initialized = hr.is_ok();
 
             // Create device instance
             let device: IPortableDevice =
@@ -286,8 +304,8 @@ impl MtpDevice {
             })?;
 
             Ok(Self {
-                device,
-                content,
+                device: ManuallyDrop::new(device),
+                content: ManuallyDrop::new(content),
                 device_id: device_id.to_string(),
                 _com_initialized: com_initialized,
             })
@@ -781,12 +799,13 @@ fn determine_content_type(file_name: &str) -> GUID {
 impl Drop for MtpDevice {
     fn drop(&mut self) {
         unsafe {
-            // Close the device
+            // Close the device, then release the COM interfaces *before*
+            // uninitializing COM on this thread.
             let _ = self.device.Close();
-        }
+            ManuallyDrop::drop(&mut self.content);
+            ManuallyDrop::drop(&mut self.device);
 
-        if self._com_initialized {
-            unsafe {
+            if self._com_initialized {
                 CoUninitialize();
             }
         }
