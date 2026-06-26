@@ -102,7 +102,23 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build frontend (required for Rust compilation)
-        run: pnpm build
+        shell: bash
+        # The Angular/esbuild bundler intermittently aborts with a native heap
+        # corruption (exit 3221226356 / 0xC0000374) on windows-latest runners.
+        # Limit the libuv thread pool to reduce the concurrent native
+        # allocations that trigger it, and retry the build a couple of times.
+        env:
+          UV_THREADPOOL_SIZE: '2'
+        run: |
+          for attempt in 1 2 3; do
+            echo "Build attempt $attempt..."
+            if pnpm build; then
+              exit 0
+            fi
+            echo "Build attempt $attempt failed; retrying..."
+          done
+          echo "Build failed after 3 attempts" >&2
+          exit 1
 
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
